@@ -1,1 +1,94 @@
+# PRC Firebase
 
+Google Firebase integration for the PRC Platform. Initializes the Kreait Firebase PHP SDK on the server, registers the modern `@prc/firebase` JavaScript script module for blocks, and provides the legacy `firebase` script handle (compat API) for older interactives.
+
+## What it does
+
+- Initializes the Kreait Firebase PHP SDK using environment-specific service account credentials from `WPCOM_VIP_PRIVATE_DIR`.
+- Exposes `$this->db` (Realtime Database) and `$this->auth` (Firebase Auth) for server-side use via `new \PRC\Platform\Firebase()`.
+- Registers the **modern** `@prc/firebase` script module via `wp_register_script_module`. Client-side credentials are injected via the `script_module_data_@prc/firebase` filter and read in `src/index.js`.
+- Registers the **legacy** `firebase` script handle (Firebase 10 compat API) consumed by older `wp_enqueue_script( 'firebase' )` call sites. Localizes `prcFirebaseConfig` and `prcFirebaseInteractivesConfig` onto that handle.
+
+## When to use Firebase vs MySQL
+
+Use Firebase for **outside user data** — quiz state, interactive responses, anonymous session data — anything written simultaneously from multiple clients. Use MySQL for **PRC editorial data**.
+
+## Architecture
+
+```
+PHP (server-side)                   JS (client-side)
+─────────────────                   ──────────────────
+\PRC\Platform\Firebase              @prc/firebase ES module        [modern, preferred]
+  └── $this->db  (Realtime DB)        └── Firebase JS SDK (modular)
+  └── $this->auth (Auth)              Credentials injected via
+                                      script_module_data filter
+
+                                    `firebase` script handle        [legacy compat]
+                                      └── Firebase JS SDK (compat)
+                                      Globals: window.firebase,
+                                      window.firebaseDb, window.firebaseAuth,
+                                      window.interactivesDb
+                                      Config localized as
+                                      prcFirebaseConfig +
+                                      prcFirebaseInteractivesConfig
+```
+
+## Required constants
+
+| Constant | Description |
+|----------|-------------|
+| `PRC_PLATFORM_FIREBASE_KEY` / `...__DEV` | API key |
+| `PRC_PLATFORM_FIREBASE_AUTH_DOMAIN` / `...__DEV` | Auth domain |
+| `PRC_PLATFORM_FIREBASE_AUTH_DB` / `...__DEV` | Auth database URL |
+| `PRC_PLATFORM_FIREBASE_INTERACTIVES_DB` / `...__DEV` | Interactives database URL |
+| `PRC_PLATFORM_FIREBASE_PROJECT_ID` / `...__DEV` | Project ID |
+| `WPCOM_VIP_PRIVATE_DIR` | Path to VIP private directory |
+
+These are defined in `vip-config/` and managed as VIP environment variables.
+
+## Service account files (VIP private dir)
+
+| File | Environment |
+|------|-------------|
+| `firebase-service-account-prod.json` | Production |
+| `firebase-service-account-staging.json` | Staging / dev |
+
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `prc-firebase.php` | Plugin entry; defines constants, loads Jetpack Autoloader, runs `Bootstrap`. |
+| `includes/class-bootstrap.php` | Loads dependencies, instantiates SDK + Assets. |
+| `includes/class-loader.php` | Hook collector. |
+| `includes/class-firebase.php` | The `\PRC\Platform\Firebase` SDK class. Server-side only. |
+| `includes/class-assets.php` | Registers script module + legacy script and their localization. |
+| `src/index.js` | Source for the `@prc/firebase` script module. |
+| `src/compat/index.js` | Source for the legacy `firebase` script handle. |
+| `build/module.min.js` | Compiled script module output. |
+| `build/compat/index.js` | Compiled legacy script output. |
+
+## Hooks
+
+| Hook | Direction | Description |
+|------|-----------|-------------|
+| `init` | Action | Registers the `@prc/firebase` script module. |
+| `wp_enqueue_scripts` (priority 0) | Action | Registers the legacy `firebase` script handle and localizes its config globals. |
+| `admin_enqueue_scripts` (priority 0) | Action | Same as above, for admin context. |
+| `script_module_data_@prc/firebase` | Filter | Injects client-side credentials into the modern module. |
+
+## Build
+
+From repo root:
+
+```bash
+npm run build -w @prc/firebase
+```
+
+This runs both:
+
+- `build:module` — `wp-scripts build` against `webpack.config.js` → `build/module.min.{js,asset.php}`.
+- `build:compat` — `wp-scripts build src/compat/index.js --output-path=build/compat` → `build/compat/index.{js,asset.php}`.
+
+## Debugging production data locally
+
+To point local dev at production Firebase, ensure both helpers fall through to the production credentials by leaving the `$environment = 'production';` line in place inside `class-firebase.php::localize_server_side_credentials()` and `class-assets.php::filter_script_module_data()`. To switch back to staging, replace it with `$environment = wp_get_environment_type();` (and revert before committing).

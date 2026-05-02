@@ -1,0 +1,26 @@
+{
+	"name": "@prc/firebase",
+	"description": "Google Firebase functionality for PRC Platform: ES module (script module) consumed via `import from '@prc/firebase'` and a legacy `firebase` compat script for older interactives.",
+	"license": "GPL-2.0-or-later",
+	"version": "1.0.0",
+	"module": "build/module.min.js",
+	"scripts": {
+		"build": "npm run build:module && npm run build:compat",
+		"build:module": "wp-scripts build --config webpack.config.js",
+		"build:compat": "wp-scripts build --config webpack.compat.config.js",
+		"start": "wp-scripts start --config webpack.config.js"
+	},
+	"devDependencies": {
+		"@wordpress/dependency-extraction-webpack-plugin": "^6.3.0",
+		"@wordpress/readable-js-assets-webpack-plugin": "^3.3.0",
+		"@wordpress/scripts": "^31.4.0",
+		"cssnano": "^7.0.4",
+		"postcss": "^8.4.39",
+		"terser-webpack-plugin": "^5.3.10",
+		"webpack": "^5.93.0",
+		"webpack-bundle-analyzer": "^4.10.2"
+	},
+	"dependencies": {
+		"firebase": "^10.12.4"
+	}
+}

@@ -1,0 +1,21 @@
+{
+	"name": "prc/firebase",
+	"description": "Google Firebase integration for the PRC Platform: Kreait PHP SDK on the server plus the @prc/firebase JavaScript script module and the legacy `firebase` compat script for older interactives.",
+	"type": "wordpress-plugin",
+	"license": "GPL-2.0-or-later",
+	"require": {
+		"php": ">=8.2",
+		"automattic/jetpack-autoloader": "^5.0",
+		"kreait/firebase-php": "^7.0"
+	},
+	"config": {
+		"allow-plugins": {
+			"composer/installers": true,
+			"automattic/jetpack-autoloader": true,
+			"php-http/discovery": true
+		},
+		"platform": {
+			"php": "8.4.0"
+		}
+	}
+}
