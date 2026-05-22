@@ -6,13 +6,30 @@
 > @prc/firebase@1.0.0 build:module
 > wp-scripts build --config webpack.config.js
 
-asset [1m[32m./module.min.js[39m[22m 243 KiB [1m[32m[emitted][39m[22m [javascript module] [1m[32m[minimized][39m[22m (name: module) 1 related asset
+asset [1m[33m./module.min.js[39m[22m [1m[33m244 KiB[39m[22m [1m[32m[emitted][39m[22m [javascript module] [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (name: module) 1 related asset
 asset [1m[32m./module.min.asset.php[39m[22m 104 bytes [1m[32m[emitted][39m[22m (name: module)
-Entrypoint [1mmodule[39m[22m 243 KiB (1.51 MiB) = [1m[32m./module.min.js[39m[22m 243 KiB [1m[32m./module.min.asset.php[39m[22m 104 bytes 1 auxiliary asset
+Entrypoint [1mmodule[39m[22m [1m[33m[big][39m[22m 244 KiB (1.52 MiB) = [1m[32m./module.min.js[39m[22m 244 KiB [1m[32m./module.min.asset.php[39m[22m 104 bytes 1 auxiliary asset
 orphan modules 1.13 MiB [1m[33m[orphan][39m[22m 13 modules
 runtime modules 396 bytes 2 modules
 [1m./src/index.js + 13 modules[39m[22m 1.14 MiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
-webpack 5.106.2 compiled [1m[32msuccessfully[39m[22m in 19198 ms
+
+[1m[33mWARNING[39m[22m in [1masset size limit: The following asset(s) exceed the recommended size limit (244 KiB).
+This can impact web performance.
+Assets: 
+  ./module.min.js (244 KiB)[39m[22m
+
+[1m[33mWARNING[39m[22m in [1mentrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
+Entrypoints:
+  module (244 KiB)
+      ./module.min.js
+      ./module.min.asset.php
+[39m[22m
+
+[1m[33mWARNING[39m[22m in [1mwebpack performance recommendations: 
+You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
+For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
+
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 16863 ms
 
 > @prc/firebase@1.0.0 build:compat
 > wp-scripts build --config webpack.compat.config.js
@@ -40,4 +57,4 @@ Entrypoints:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 18015 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 19116 ms

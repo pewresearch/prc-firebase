@@ -6,10 +6,18 @@ import {
 	signInWithEmailAndPassword,
 	onAuthStateChanged,
 	signOut,
-	sendPasswordResetEmail,
-	confirmPasswordReset,
-	verifyPasswordResetCode,
 	signInAnonymously,
+	sendSignInLinkToEmail,
+	isSignInWithEmailLink,
+	signInWithEmailLink,
+	signInWithRedirect,
+	getRedirectResult,
+	linkWithCredential,
+	EmailAuthProvider,
+	GoogleAuthProvider,
+	OAuthProvider,
+	GithubAuthProvider,
+	fetchSignInMethodsForEmail,
 } from 'firebase/auth';
 import {
 	getDatabase,
@@ -52,10 +60,18 @@ const _auth = getAuth();
 const _signInWithEmailAndPassword = signInWithEmailAndPassword;
 const _onAuthStateChanged = onAuthStateChanged;
 const _signOut = signOut;
-const _sendPasswordResetEmail = sendPasswordResetEmail;
-const _confirmPasswordReset = confirmPasswordReset;
-const _verifyPasswordResetCode = verifyPasswordResetCode;
 const _signInAnonymously = signInAnonymously;
+const _sendSignInLinkToEmail = sendSignInLinkToEmail;
+const _isSignInWithEmailLink = isSignInWithEmailLink;
+const _signInWithEmailLink = signInWithEmailLink;
+const _signInWithRedirect = signInWithRedirect;
+const _getRedirectResult = getRedirectResult;
+const _linkWithCredential = linkWithCredential;
+const _EmailAuthProvider = EmailAuthProvider;
+const _GoogleAuthProvider = GoogleAuthProvider;
+const _OAuthProvider = OAuthProvider;
+const _GithubAuthProvider = GithubAuthProvider;
+const _fetchSignInMethodsForEmail = fetchSignInMethodsForEmail;
 const _db = getDatabase;
 const _ref = ref;
 const _push = push;
@@ -84,10 +100,18 @@ export {
 	_signInWithEmailAndPassword as signInWithEmailAndPassword,
 	_onAuthStateChanged as onAuthStateChanged,
 	_signOut as signOut,
-	_sendPasswordResetEmail as sendPasswordResetEmail,
-	_confirmPasswordReset as confirmPasswordReset,
-	_verifyPasswordResetCode as verifyPasswordResetCode,
 	_signInAnonymously as signInAnonymously,
+	_sendSignInLinkToEmail as sendSignInLinkToEmail,
+	_isSignInWithEmailLink as isSignInWithEmailLink,
+	_signInWithEmailLink as signInWithEmailLink,
+	_signInWithRedirect as signInWithRedirect,
+	_getRedirectResult as getRedirectResult,
+	_linkWithCredential as linkWithCredential,
+	_EmailAuthProvider as EmailAuthProvider,
+	_GoogleAuthProvider as GoogleAuthProvider,
+	_OAuthProvider as OAuthProvider,
+	_GithubAuthProvider as GithubAuthProvider,
+	_fetchSignInMethodsForEmail as fetchSignInMethodsForEmail,
 	_db as getDatabase,
 	_ref as ref,
 	_push as push,

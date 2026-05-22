@@ -19,6 +19,7 @@
 
 namespace PRC\Platform;
 
+use Google\Auth\Credentials\ServiceAccountCredentials;
 use Kreait\Firebase\Factory;
 use WP_Error;
 
@@ -108,21 +109,9 @@ class Firebase {
 	 * @return string|WP_Error The service account JSON, or WP_Error.
 	 */
 	public function localize_server_side_credentials() {
-		if ( ! defined( 'WPCOM_VIP_PRIVATE_DIR' ) ) {
-			return new WP_Error( 'firebase_service_account', 'WPCOM_VIP_PRIVATE_DIR is not defined.' );
-		}
-
-		$environment = wp_get_environment_type();
-		// Force production credentials. Flip back to `wp_get_environment_type()`
-		// when you need to develop against staging Firebase data.
-		$environment = 'production';
-
-		$service_account_file = ( 'production' === $environment )
-			? \WPCOM_VIP_PRIVATE_DIR . '/firebase-service-account-prod.json'
-			: \WPCOM_VIP_PRIVATE_DIR . '/firebase-service-account-staging.json';
-
-		if ( ! file_exists( $service_account_file ) ) {
-			return new WP_Error( 'firebase_service_account', 'Service account file does not exist.' );
+		$service_account_file = $this->get_service_account_path();
+		if ( is_wp_error( $service_account_file ) ) {
+			return $service_account_file;
 		}
 
 		$credentials = file_get_contents( $service_account_file );
@@ -132,5 +121,81 @@ class Firebase {
 		}
 
 		return $credentials;
+	}
+
+	/**
+	 * Resolve the Firebase service account JSON key file path for the current environment.
+	 *
+	 * @since 1.0.0
+	 * @return string|WP_Error Absolute path to the service account file, or WP_Error.
+	 */
+	private function get_service_account_path() {
+		if ( ! defined( 'WPCOM_VIP_PRIVATE_DIR' ) ) {
+			return new WP_Error( 'firebase_service_account', 'WPCOM_VIP_PRIVATE_DIR is not defined.' );
+		}
+
+		$environment = wp_get_environment_type();
+		// Force production credentials. Flip back to `wp_get_environment_type()`
+		// when you need to develop against staging Firebase data.
+		// $environment = 'production';
+
+		$service_account_file = ( 'production' === $environment )
+			? \WPCOM_VIP_PRIVATE_DIR . '/firebase-service-account-prod.json'
+			: \WPCOM_VIP_PRIVATE_DIR . '/firebase-service-account-staging.json';
+
+		if ( ! file_exists( $service_account_file ) ) {
+			return new WP_Error( 'firebase_service_account', 'Service account file does not exist.' );
+		}
+
+		return $service_account_file;
+	}
+
+	/**
+	 * Mint a Google-issued OIDC ID token signed by the platform Firebase
+	 * service account, scoped to a specific target audience (a Cloud Function
+	 * URL or any other Google service URL). Tokens are cached per-request.
+	 *
+	 * @since 1.0.0
+	 * @param string $target_audience The full URL of the function or service to invoke.
+	 * @return string|WP_Error The ID token string, or WP_Error on failure.
+	 */
+	public function get_id_token( string $target_audience ) {
+		static $cache = array();
+
+		if ( '' === $target_audience ) {
+			return new WP_Error( 'firebase_id_token', 'target_audience is required.' );
+		}
+
+		if ( isset( $cache[ $target_audience ] ) && $cache[ $target_audience ]['exp'] > time() + 60 ) {
+			return $cache[ $target_audience ]['token'];
+		}
+
+		if ( ! class_exists( ServiceAccountCredentials::class ) ) {
+			return new WP_Error( 'firebase_id_token', 'google/auth library not available.' );
+		}
+
+		$sa_file = $this->get_service_account_path();
+		if ( is_wp_error( $sa_file ) ) {
+			return $sa_file;
+		}
+
+		try {
+			// scope = null + targetAudience = URL → OIDC ID token via Google token endpoint.
+			$creds = new ServiceAccountCredentials( null, $sa_file, null, $target_audience );
+			$resp  = $creds->fetchAuthToken();
+		} catch ( \Throwable $e ) {
+			return new WP_Error( 'firebase_id_token', 'Failed to fetch ID token: ' . $e->getMessage() );
+		}
+
+		if ( empty( $resp['id_token'] ) ) {
+			return new WP_Error( 'firebase_id_token', 'No id_token in token response.' );
+		}
+
+		$cache[ $target_audience ] = array(
+			'token' => $resp['id_token'],
+			'exp'   => time() + 3300,
+		);
+
+		return $resp['id_token'];
 	}
 }

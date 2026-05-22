@@ -9121,7 +9121,7 @@ class BaseOAuthProvider extends FederatedAuthProvider {
  * ```
  * @public
  */
-class OAuthProvider extends (/* unused pure expression or super */ null && (BaseOAuthProvider)) {
+class OAuthProvider extends BaseOAuthProvider {
     /**
      * Creates an {@link OAuthCredential} from a JSON string or a plain object.
      * @param json - A plain object or a JSON string
@@ -10187,7 +10187,7 @@ async function signInWithCredential(auth, credential) {
  * @public
  */
 async function linkWithCredential(user, credential) {
-    const userInternal = index_68602d24_getModularInstance(user);
+    const userInternal = getModularInstance(user);
     await _assertLinkedStatus(false, userInternal, credential.providerId);
     return _link$1(userInternal, credential);
 }
@@ -10460,7 +10460,7 @@ async function sendPasswordResetEmail(auth, email, actionCodeSettings) {
  * @public
  */
 async function confirmPasswordReset(auth, oobCode, newPassword) {
-    await resetPassword(getModularInstance(auth), {
+    await resetPassword(index_68602d24_getModularInstance(auth), {
         oobCode,
         newPassword
     })
@@ -10495,7 +10495,7 @@ async function applyActionCode(auth, oobCode) {
  * @public
  */
 async function checkActionCode(auth, oobCode) {
-    const authModular = getModularInstance(auth);
+    const authModular = index_68602d24_getModularInstance(auth);
     const response = await resetPassword(authModular, { oobCode });
     // Email could be empty only if the request type is EMAIL_SIGNIN or
     // VERIFY_AND_CHANGE_EMAIL.
@@ -10546,7 +10546,7 @@ async function checkActionCode(auth, oobCode) {
  * @public
  */
 async function verifyPasswordResetCode(auth, code) {
-    const { data } = await checkActionCode(getModularInstance(auth), code);
+    const { data } = await checkActionCode(index_68602d24_getModularInstance(auth), code);
     // Email should always be present since a code was sent to it
     return data.email;
 }
@@ -10751,10 +10751,10 @@ function isSignInWithEmailLink(auth, emailLink) {
  * @public
  */
 async function signInWithEmailLink(auth, email, emailLink) {
-    if (index_68602d24_isFirebaseServerApp(auth.app)) {
+    if (_isFirebaseServerApp(auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(auth));
     }
-    const authModular = index_68602d24_getModularInstance(auth);
+    const authModular = getModularInstance(auth);
     const credential = EmailAuthProvider.credentialWithLink(email, emailLink || _getCurrentUrl());
     // Check if the tenant ID in the email link matches the tenant ID on Auth
     // instance.
@@ -10827,7 +10827,7 @@ async function fetchSignInMethodsForEmail(auth, email) {
         identifier: email,
         continueUri
     };
-    const { signinMethods } = await createAuthUri(index_68602d24_getModularInstance(auth), request);
+    const { signinMethods } = await createAuthUri(getModularInstance(auth), request);
     return signinMethods || [];
 }
 /**
@@ -14016,7 +14016,7 @@ function signInWithRedirect(auth, provider, resolver) {
     return _signInWithRedirect(auth, provider, resolver);
 }
 async function _signInWithRedirect(auth, provider, resolver) {
-    if (index_68602d24_isFirebaseServerApp(auth.app)) {
+    if (_isFirebaseServerApp(auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(auth));
     }
     const authInternal = _castAuth(auth);
@@ -29420,10 +29420,18 @@ const _auth = getAuth();
 const _signInWithEmailAndPassword = signInWithEmailAndPassword;
 const _onAuthStateChanged = onAuthStateChanged;
 const _signOut = signOut;
-const _sendPasswordResetEmail = sendPasswordResetEmail;
-const _confirmPasswordReset = confirmPasswordReset;
-const _verifyPasswordResetCode = verifyPasswordResetCode;
 const _signInAnonymously = signInAnonymously;
+const _sendSignInLinkToEmail = sendSignInLinkToEmail;
+const _isSignInWithEmailLink = isSignInWithEmailLink;
+const _signInWithEmailLink = signInWithEmailLink;
+const src_signInWithRedirect = signInWithRedirect;
+const src_getRedirectResult = getRedirectResult;
+const _linkWithCredential = linkWithCredential;
+const _EmailAuthProvider = EmailAuthProvider;
+const _GoogleAuthProvider = GoogleAuthProvider;
+const _OAuthProvider = OAuthProvider;
+const _GithubAuthProvider = GithubAuthProvider;
+const _fetchSignInMethodsForEmail = fetchSignInMethodsForEmail;
 const _db = getDatabase;
 const _ref = ref;
 const _push = push;
@@ -29447,4 +29455,4 @@ const _serverTimestamp = serverTimestamp;
 const _onChildAdded = onChildAdded;
 const _onChildRemoved = onChildRemoved;
 
-export { _app as app, _auth as auth, _child as child, _confirmPasswordReset as confirmPasswordReset, _endAt as endAt, _equalTo as equalTo, _get as get, _db as getDatabase, _limitToFirst as limitToFirst, _limitToLast as limitToLast, _off as off, _onAuthStateChanged as onAuthStateChanged, _onChildAdded as onChildAdded, _onChildRemoved as onChildRemoved, _onValue as onValue, _orderByChild as orderByChild, _orderByKey as orderByKey, _orderByValue as orderByValue, _push as push, _query as query, _ref as ref, _remove as remove, _sendPasswordResetEmail as sendPasswordResetEmail, _serverTimestamp as serverTimestamp, _set as set, _signInAnonymously as signInAnonymously, _signInWithEmailAndPassword as signInWithEmailAndPassword, _signOut as signOut, _startAt as startAt, _update as update, _verifyPasswordResetCode as verifyPasswordResetCode };
+export { _EmailAuthProvider as EmailAuthProvider, _GithubAuthProvider as GithubAuthProvider, _GoogleAuthProvider as GoogleAuthProvider, _OAuthProvider as OAuthProvider, _app as app, _auth as auth, _child as child, _endAt as endAt, _equalTo as equalTo, _fetchSignInMethodsForEmail as fetchSignInMethodsForEmail, _get as get, _db as getDatabase, src_getRedirectResult as getRedirectResult, _isSignInWithEmailLink as isSignInWithEmailLink, _limitToFirst as limitToFirst, _limitToLast as limitToLast, _linkWithCredential as linkWithCredential, _off as off, _onAuthStateChanged as onAuthStateChanged, _onChildAdded as onChildAdded, _onChildRemoved as onChildRemoved, _onValue as onValue, _orderByChild as orderByChild, _orderByKey as orderByKey, _orderByValue as orderByValue, _push as push, _query as query, _ref as ref, _remove as remove, _sendSignInLinkToEmail as sendSignInLinkToEmail, _serverTimestamp as serverTimestamp, _set as set, _signInAnonymously as signInAnonymously, _signInWithEmailAndPassword as signInWithEmailAndPassword, _signInWithEmailLink as signInWithEmailLink, src_signInWithRedirect as signInWithRedirect, _signOut as signOut, _startAt as startAt, _update as update };

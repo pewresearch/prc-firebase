@@ -159,7 +159,7 @@ class Assets {
 		$environment = wp_get_environment_type();
 		// Force production credentials; flip back to `wp_get_environment_type()`
 		// to point local dev at staging Firebase data.
-		$environment = 'production';
+		// $environment = 'production';
 
 		$api_key     = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_KEY : \PRC_PLATFORM_FIREBASE_KEY__DEV;
 		$auth_domain = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN : \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN__DEV;
@@ -189,27 +189,29 @@ class Assets {
 	 * @return void
 	 */
 	public function localize_firebase( string $script_slug ): void {
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_KEY' ) ) {
+		if ( ! defined( 'PRC_PLATFORM_FIREBASE_KEY' ) && ! defined( 'PRC_PLATFORM_FIREBASE_KEY__DEV' ) ) {
 			return;
 		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DOMAIN' ) ) {
+		if ( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DOMAIN' ) && ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DOMAIN__DEV' ) ) {
 			return;
 		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DB' ) ) {
+		if ( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DB' ) && ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DB__DEV' ) ) {
 			return;
 		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_INTERACTIVES_DB' ) ) {
+		if ( ! defined( 'PRC_PLATFORM_FIREBASE_INTERACTIVES_DB' ) && ! defined( 'PRC_PLATFORM_FIREBASE_INTERACTIVES_DB__DEV' ) ) {
 			return;
 		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_PROJECT_ID' ) ) {
+		if ( ! defined( 'PRC_PLATFORM_FIREBASE_PROJECT_ID' ) && ! defined( 'PRC_PLATFORM_FIREBASE_PROJECT_ID__DEV' ) ) {
 			return;
 		}
 
-		$api_key         = \PRC_PLATFORM_FIREBASE_KEY;
-		$auth_domain     = \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN;
-		$auth_db         = \PRC_PLATFORM_FIREBASE_AUTH_DB;
-		$interactives_db = \PRC_PLATFORM_FIREBASE_INTERACTIVES_DB;
-		$project_id      = \PRC_PLATFORM_FIREBASE_PROJECT_ID;
+		$environment = wp_get_environment_type();
+
+		$api_key         = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_KEY : \PRC_PLATFORM_FIREBASE_KEY__DEV;
+		$auth_domain     = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN : \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN__DEV;
+		$auth_db         = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_AUTH_DB : \PRC_PLATFORM_FIREBASE_AUTH_DB__DEV;
+		$interactives_db = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_INTERACTIVES_DB : \PRC_PLATFORM_FIREBASE_INTERACTIVES_DB__DEV;
+		$project_id      = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_PROJECT_ID : \PRC_PLATFORM_FIREBASE_PROJECT_ID__DEV;
 
 		wp_localize_script(
 			$script_slug,
