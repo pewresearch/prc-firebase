@@ -29,7 +29,7 @@ Entrypoints:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 15760 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 16669 ms
 
 > @prc/firebase@1.0.0 build:compat
 > wp-scripts build --config webpack.compat.config.js
@@ -57,4 +57,4 @@ Entrypoints:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 17026 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 18260 ms
