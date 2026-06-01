@@ -2,7 +2,7 @@
 	"name": "@prc/firebase",
 	"description": "Google Firebase functionality for PRC Platform: ES module (script module) consumed via `import from '@prc/firebase'` and a legacy `firebase` compat script for older interactives.",
 	"license": "GPL-2.0-or-later",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"module": "build/module.min.js",
 	"scripts": {
 		"build": "npm run build:module && npm run build:compat",

@@ -65,6 +65,7 @@ class Bootstrap {
 	 */
 	private function load_dependencies() {
 		require_once plugin_dir_path( __DIR__ ) . '/includes/class-loader.php';
+		require_once plugin_dir_path( __DIR__ ) . '/includes/trait-cli-audience-verification.php';
 		require_once plugin_dir_path( __DIR__ ) . '/includes/class-firebase.php';
 		require_once plugin_dir_path( __DIR__ ) . '/includes/class-assets.php';
 
