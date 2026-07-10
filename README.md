@@ -4,7 +4,7 @@ Google Firebase integration for the PRC Platform. Initializes the Kreait Firebas
 
 ## What it does
 
-- Initializes the Kreait Firebase PHP SDK using environment-specific service account credentials from `WPCOM_VIP_PRIVATE_DIR`.
+- Initializes the Kreait Firebase PHP SDK using a service account JSON from `WPCOM_VIP_PRIVATE_DIR` (`firebase-service-account.json`, written at deploy/local-gen time).
 - Exposes `$this->db` (Realtime Database) and `$this->auth` (Firebase Auth) for server-side use via `new \PRC\Platform\Firebase()`.
 - Registers the **modern** `@prc/firebase` script module via `wp_register_script_module`. Client-side credentials are injected via the `script_module_data_@prc/firebase` filter and read in `src/index.js`.
 - Registers the **legacy** `firebase` script handle (Firebase 10 compat API) consumed by older `wp_enqueue_script( 'firebase' )` call sites. Localizes `prcFirebaseConfig` and `prcFirebaseInteractivesConfig` onto that handle.
@@ -46,12 +46,13 @@ PHP (server-side)                   JS (client-side)
 
 These are defined in `vip-config/` and managed as VIP environment variables.
 
-## Service account files (VIP private dir)
+## Service account file (VIP private dir)
 
-| File | Environment |
-|------|-------------|
-| `firebase-service-account-prod.json` | Production |
-| `firebase-service-account-staging.json` | Staging / dev |
+| File | How it is produced |
+|------|--------------------|
+| `firebase-service-account.json` | `bin/setup/generate-firebase-service-account.sh` at local bootstrap / VIP deploy. Selects the Platform Secrets item tagged for the target env (`production` vs `alpha`/`beta`/`canary`/`local`). |
+
+Do not commit this file. See `docs/DEPENDENCY_AUTH.md`.
 
 ## Key files
 
@@ -91,4 +92,16 @@ This runs both:
 
 ## Debugging production data locally
 
-To point local dev at production Firebase, ensure both helpers fall through to the production credentials by leaving the `$environment = 'production';` line in place inside `class-firebase.php::localize_server_side_credentials()` and `class-assets.php::filter_script_module_data()`. To switch back to staging, replace it with `$environment = wp_get_environment_type();` (and revert before committing).
+Server-side credentials come from `private/firebase-service-account.json`. To point local at production Firebase Admin, run:
+
+```bash
+bash ./bin/setup/generate-firebase-service-account.sh --env production
+```
+
+Revert to staging for day-to-day local work:
+
+```bash
+npm run gen:firebase-sa
+```
+
+Client-side config still follows `PRC_PLATFORM_FIREBASE_*` vs `*__DEV` in `class-assets.php`.

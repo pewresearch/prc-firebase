@@ -102,8 +102,9 @@ class Firebase {
 	/**
 	 * Provide the Firebase service account credentials to the server-side SDK.
 	 *
-	 * Reads the JSON key file out of the VIP private dir based on the current
-	 * environment.
+	 * Reads the JSON key file from the VIP private dir. The file is written at
+	 * deploy/local-gen time with the correct env's key (see
+	 * bin/setup/generate-firebase-service-account.sh).
 	 *
 	 * @since 1.0.0
 	 * @return string|WP_Error The service account JSON, or WP_Error.
@@ -124,7 +125,7 @@ class Firebase {
 	}
 
 	/**
-	 * Resolve the Firebase service account JSON key file path for the current environment.
+	 * Resolve the Firebase service account JSON key file path.
 	 *
 	 * @since 1.0.0
 	 * @return string|WP_Error Absolute path to the service account file, or WP_Error.
@@ -134,14 +135,7 @@ class Firebase {
 			return new WP_Error( 'firebase_service_account', 'WPCOM_VIP_PRIVATE_DIR is not defined.' );
 		}
 
-		$environment = wp_get_environment_type();
-		// Force production credentials. Flip back to `wp_get_environment_type()`
-		// when you need to develop against staging Firebase data.
-		// $environment = 'production';
-
-		$service_account_file = ( 'production' === $environment )
-			? \WPCOM_VIP_PRIVATE_DIR . '/firebase-service-account-prod.json'
-			: \WPCOM_VIP_PRIVATE_DIR . '/firebase-service-account-staging.json';
+		$service_account_file = \WPCOM_VIP_PRIVATE_DIR . '/firebase-service-account.json';
 
 		if ( ! file_exists( $service_account_file ) ) {
 			return new WP_Error( 'firebase_service_account', 'Service account file does not exist.' );
