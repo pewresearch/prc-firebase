@@ -6,7 +6,7 @@ Google Firebase integration for the PRC Platform. Initializes the Kreait Firebas
 
 - Initializes the Kreait Firebase PHP SDK using a service account JSON from `WPCOM_VIP_PRIVATE_DIR` (`firebase-service-account.json`, written at deploy/local-gen time).
 - Exposes `$this->db` (Realtime Database) and `$this->auth` (Firebase Auth) for server-side use via `new \PRC\Platform\Firebase()`.
-- Registers the **modern** `@prc/firebase` script module via `wp_register_script_module`. Client-side credentials are injected via the `script_module_data_@prc/firebase` filter and read in `src/index.js`.
+- Registers the **modern** `@prc/firebase` script module via `wp_register_script_module`. Client-side credentials are injected via the `script_module_data_@prc/firebase` filter and read in `src/index.js`. When the config element is missing or `apiKey` is empty (common on alpha/staging without Firebase env vars), `src/index.js` **skips** `initializeApp` / `getAuth` so anonymous page loads do not throw `auth/invalid-api-key`.
 - Registers the **legacy** `firebase` script handle (Firebase 10 compat API) consumed by older `wp_enqueue_script( 'firebase' )` call sites. Localizes `prcFirebaseConfig` and `prcFirebaseInteractivesConfig` onto that handle.
 
 ## When to use Firebase vs MySQL
@@ -89,6 +89,11 @@ This runs both:
 
 - `build:module` — `wp-scripts build` against `webpack.config.js` → `build/module.min.{js,asset.php}`.
 - `build:compat` — `wp-scripts build src/compat/index.js --output-path=build/compat` → `build/compat/index.{js,asset.php}`.
+
+## Gotchas
+
+- **Client init is optional** — Blocks that import `@prc/firebase` must tolerate `auth` being uninitialized when Firebase constants are undefined. Gate UI on a successful sign-in flow or server-provided feature flags; do not assume `getAuth()` ran on every page.
+- **Legacy vs modern** — Prefer the `@prc/firebase` script module for new blocks. The compat `firebase` handle remains for older interactives that expect `window.firebase` globals.
 
 ## Debugging production data locally
 

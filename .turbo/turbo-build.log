@@ -1,14 +1,14 @@
 
-> @prc/firebase@1.0.0 build
+> @prc/firebase@1.0.1 build
 > npm run build:module && npm run build:compat
 
 
-> @prc/firebase@1.0.0 build:module
+> @prc/firebase@1.0.1 build:module
 > wp-scripts build --config webpack.config.js
 
 asset ./module.min.js 244 KiB [compared for emit] [javascript module] [minimized] [big] (name: module) 1 related asset
 asset ./module.min.asset.php 104 bytes [compared for emit] (name: module)
-Entrypoint module [big] 244 KiB (1.52 MiB) = ./module.min.js 244 KiB ./module.min.asset.php 104 bytes 1 auxiliary asset
+Entrypoint module [big] 245 KiB (1.52 MiB) = ./module.min.js 244 KiB ./module.min.asset.php 104 bytes 1 auxiliary asset
 orphan modules 1.13 MiB [orphan] 13 modules
 runtime modules 396 bytes 2 modules
 ./src/index.js + 13 modules 1.14 MiB [built] [code generated]
@@ -20,7 +20,7 @@ Assets:
 
 WARNING in entrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
 Entrypoints:
-  module (244 KiB)
+  module (245 KiB)
       ./module.min.js
       ./module.min.asset.php
 
@@ -28,9 +28,9 @@ WARNING in webpack performance recommendations:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/
 
-webpack 5.106.2 compiled with 3 warnings in 6780 ms
+webpack 5.106.2 compiled with 3 warnings in 7957 ms
 
-> @prc/firebase@1.0.0 build:compat
+> @prc/firebase@1.0.1 build:compat
 > wp-scripts build --config webpack.compat.config.js
 
 asset index.js 314 KiB [compared for emit] [minimized] [big] (name: index)
@@ -55,4 +55,4 @@ WARNING in webpack performance recommendations:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/
 
-webpack 5.106.2 compiled with 3 warnings in 8388 ms
+webpack 5.106.2 compiled with 3 warnings in 5797 ms

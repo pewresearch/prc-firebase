@@ -29405,18 +29405,44 @@ registerDatabase();
 
 
 
+
+/**
+ * Read Firebase client config from the WP script-module data element.
+ * Returns {} when the element is missing or JSON is invalid (common on
+ * alpha/staging when Firebase constants are not defined).
+ *
+ * @return {Object} Firebase config object.
+ */
 function loadFirebaseConfig() {
   const el = document.getElementById('wp-script-module-data-@prc/firebase');
+  if (!el?.textContent) {
+    return {};
+  }
   try {
-    const config = JSON.parse(el.textContent);
-    return config;
+    return JSON.parse(el.textContent);
   } catch (err) {
     console.error('loadFirebaseConfig error:', err);
     return {};
   }
 }
-const _app = initializeApp(loadFirebaseConfig());
-const _auth = getAuth();
+
+/**
+ * Whether config has a usable apiKey so initializeApp / getAuth won't throw
+ * auth/invalid-api-key.
+ *
+ * @param {Object} config Firebase config from script-module data.
+ * @return {boolean} True when apiKey is a non-empty string.
+ */
+function isUsableFirebaseConfig(config) {
+  return config && typeof config.apiKey === 'string' && config.apiKey.length > 0;
+}
+const firebaseConfig = loadFirebaseConfig();
+let _app = null;
+let _auth = null;
+if (isUsableFirebaseConfig(firebaseConfig)) {
+  _app = initializeApp(firebaseConfig);
+  _auth = getAuth(_app);
+}
 const _signInWithEmailAndPassword = signInWithEmailAndPassword;
 const _onAuthStateChanged = onAuthStateChanged;
 const _signOut = signOut;
