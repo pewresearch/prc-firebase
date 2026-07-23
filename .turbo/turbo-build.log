@@ -1,58 +1,60 @@
 
-> @prc/firebase@1.0.1 build
+> @prc/firebase@1.0.0 build
 > npm run build:module && npm run build:compat
 
 
-> @prc/firebase@1.0.1 build:module
+> @prc/firebase@1.0.0 build:module
 > wp-scripts build --config webpack.config.js
 
-asset ./module.min.js 244 KiB [compared for emit] [javascript module] [minimized] [big] (name: module) 1 related asset
-asset ./module.min.asset.php 104 bytes [compared for emit] (name: module)
-Entrypoint module [big] 245 KiB (1.52 MiB) = ./module.min.js 244 KiB ./module.min.asset.php 104 bytes 1 auxiliary asset
-orphan modules 1.13 MiB [orphan] 13 modules
+asset [1m[33m./module.min.js[39m[22m [1m[33m244 KiB[39m[22m [1m[32m[emitted][39m[22m [javascript module] [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (name: module) 1 related asset
+asset [1m[32m./module.min.asset.php[39m[22m 104 bytes [1m[32m[emitted][39m[22m (name: module)
+Entrypoint [1mmodule[39m[22m [1m[33m[big][39m[22m 245 KiB (1.52 MiB) = [1m[32m./module.min.js[39m[22m 244 KiB [1m[32m./module.min.asset.php[39m[22m 104 bytes 1 auxiliary asset
+orphan modules 1.13 MiB [1m[33m[orphan][39m[22m 13 modules
 runtime modules 396 bytes 2 modules
-./src/index.js + 13 modules 1.14 MiB [built] [code generated]
+[1m./src/index.js + 13 modules[39m[22m 1.14 MiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
 
-WARNING in asset size limit: The following asset(s) exceed the recommended size limit (244 KiB).
+[1m[33mWARNING[39m[22m in [1masset size limit: The following asset(s) exceed the recommended size limit (244 KiB).
 This can impact web performance.
 Assets: 
-  ./module.min.js (244 KiB)
+  ./module.min.js (244 KiB)[39m[22m
 
-WARNING in entrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
+[1m[33mWARNING[39m[22m in [1mentrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
 Entrypoints:
   module (245 KiB)
       ./module.min.js
       ./module.min.asset.php
+[39m[22m
 
-WARNING in webpack performance recommendations: 
+[1m[33mWARNING[39m[22m in [1mwebpack performance recommendations: 
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
-For more info visit https://webpack.js.org/guides/code-splitting/
+For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with 3 warnings in 7957 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 5544 ms
 
-> @prc/firebase@1.0.1 build:compat
+> @prc/firebase@1.0.0 build:compat
 > wp-scripts build --config webpack.compat.config.js
 
-asset index.js 314 KiB [compared for emit] [minimized] [big] (name: index)
-asset index.asset.php 84 bytes [compared for emit] (name: index)
-Entrypoint index [big] 314 KiB = index.js 314 KiB index.asset.php 84 bytes
-orphan modules 1.24 MiB [orphan] 16 modules
+asset [1m[33mindex.js[39m[22m [1m[33m314 KiB[39m[22m [1m[32m[emitted][39m[22m [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (name: index)
+asset [1m[32mindex.asset.php[39m[22m 84 bytes [1m[32m[emitted][39m[22m (name: index)
+Entrypoint [1mindex[39m[22m [1m[33m[big][39m[22m 314 KiB = [1m[32mindex.js[39m[22m 314 KiB [1m[32mindex.asset.php[39m[22m 84 bytes
+orphan modules 1.24 MiB [1m[33m[orphan][39m[22m 16 modules
 runtime modules 670 bytes 3 modules
-./src/compat/index.js + 16 modules 1.24 MiB [built] [code generated]
+[1m./src/compat/index.js + 16 modules[39m[22m 1.24 MiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
 
-WARNING in asset size limit: The following asset(s) exceed the recommended size limit (244 KiB).
+[1m[33mWARNING[39m[22m in [1masset size limit: The following asset(s) exceed the recommended size limit (244 KiB).
 This can impact web performance.
 Assets: 
-  index.js (314 KiB)
+  index.js (314 KiB)[39m[22m
 
-WARNING in entrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
+[1m[33mWARNING[39m[22m in [1mentrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
 Entrypoints:
   index (314 KiB)
       index.js
       index.asset.php
+[39m[22m
 
-WARNING in webpack performance recommendations: 
+[1m[33mWARNING[39m[22m in [1mwebpack performance recommendations: 
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
-For more info visit https://webpack.js.org/guides/code-splitting/
+For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with 3 warnings in 5797 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 6538 ms
