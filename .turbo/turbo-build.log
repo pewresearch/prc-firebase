@@ -1,9 +1,9 @@
 
-> @prc/firebase@1.0.0 build
+> @prc/firebase@1.1.0 build
 > npm run build:module && npm run build:compat
 
 
-> @prc/firebase@1.0.0 build:module
+> @prc/firebase@1.1.0 build:module
 > wp-scripts build --config webpack.config.js
 
 asset [1m[33m./module.min.js[39m[22m [1m[33m244 KiB[39m[22m [1m[32m[emitted][39m[22m [javascript module] [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (name: module) 1 related asset
@@ -29,9 +29,9 @@ Entrypoints:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 5544 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 20251 ms
 
-> @prc/firebase@1.0.0 build:compat
+> @prc/firebase@1.1.0 build:compat
 > wp-scripts build --config webpack.compat.config.js
 
 asset [1m[33mindex.js[39m[22m [1m[33m314 KiB[39m[22m [1m[32m[emitted][39m[22m [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (name: index)
@@ -57,4 +57,4 @@ Entrypoints:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 6538 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 14834 ms

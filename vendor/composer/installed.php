@@ -3,7 +3,7 @@
         'name' => 'prc/firebase',
         'pretty_version' => 'dev-trunk',
         'version' => 'dev-trunk',
-        'reference' => '57477e5cf4abd36f4cb9b6345434f268ca923b35',
+        'reference' => 'aa78293c0280431d4fb73fc6a89e7ccb00c852b6',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -238,7 +238,7 @@
         'prc/firebase' => array(
             'pretty_version' => 'dev-trunk',
             'version' => 'dev-trunk',
-            'reference' => '57477e5cf4abd36f4cb9b6345434f268ca923b35',
+            'reference' => 'aa78293c0280431d4fb73fc6a89e7ccb00c852b6',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
