@@ -41,10 +41,34 @@ PHP (server-side)                   JS (client-side)
 | `PRC_PLATFORM_FIREBASE_AUTH_DOMAIN` / `...__DEV` | Auth domain |
 | `PRC_PLATFORM_FIREBASE_AUTH_DB` / `...__DEV` | Auth database URL |
 | `PRC_PLATFORM_FIREBASE_INTERACTIVES_DB` / `...__DEV` | Interactives database URL |
+| `PRC_PLATFORM_FIREBASE_DATA_TABLE_BUILDER_DB` / `...__DEV` | Data-table-builder database URL (server-side reads for data-table blocks) |
 | `PRC_PLATFORM_FIREBASE_PROJECT_ID` / `...__DEV` | Project ID |
 | `WPCOM_VIP_PRIVATE_DIR` | Path to VIP private directory |
 
 These are defined in `vip-config/` and managed as VIP environment variables.
+
+### Data-table-builder RTDB
+
+Data-table blocks (`prc-block-tables`) read Firebase only on the server via `PRC_PLATFORM_FIREBASE_DATA_TABLE_BUILDER_DB` / `__DEV`. They do not use the client `@prc/firebase` module or `INTERACTIVES_DB`.
+
+| Environment | RTDB URL (Platform Secrets value) |
+|-------------|-----------------------------------|
+| Production (temporary) | `https://prc-app-prod-data-table-builder.firebaseio.com` |
+| Non-prod (beta/alpha/local) | `https://prc-platform-staging-data-table-builder.firebaseio.com` |
+| Future production | `https://prc-platform-prod-data-table-builder.firebaseio.com` (update the prod constant value when the project cutover happens; no block code changes) |
+
+Table datasets live under paths relative to the RTDB root (e.g. `migrations`).
+
+### Deploy checklist (data-table-builder RTDB)
+
+Before beta or production data-table Firebase reads work, complete these ops steps (not in git):
+
+1. Create Platform Secrets items titled `PRC_PLATFORM_FIREBASE_DATA_TABLE_BUILDER_DB` and `PRC_PLATFORM_FIREBASE_DATA_TABLE_BUILDER_DB__DEV` with the URLs above, tagged for the correct VIP environments (`production` vs `alpha`/`beta`/`canary`/`local`).
+2. Sync to VIP: `bin/setup/sync-vip-env-vars.sh production` and `bin/setup/sync-vip-env-vars.sh beta` (plus alpha/canary if used).
+3. Regenerate local vars: `npm run gen:vip-env-vars`.
+4. Confirm service account read access on the new RTDBs:
+   - Production SA (`prc-app-prod`) → `prc-app-prod-data-table-builder`
+   - Staging SA (`prc-platform-staging`) → `prc-platform-staging-data-table-builder`
 
 ## Service account file (VIP private dir)
 
