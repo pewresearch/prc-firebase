@@ -111,38 +111,72 @@ trait CLI_Audience_Verification {
 	}
 
 	/**
+	 * Validate that the Cloud Function confirmed the requested verification mode.
+	 *
+	 * Fail closed before any audience is written. Older deployments that omit
+	 * or ignore `verification` must not persist a mislabeled cohort.
+	 *
+	 * @param mixed  $body      Decoded JSON response body.
+	 * @param string $requested verified|unverified|all
+	 * @return string|\WP_Error Confirmed mode, or WP_Error on mismatch.
+	 */
+	protected static function check_response_verification( $body, string $requested ) {
+		$reported = is_array( $body ) && isset( $body['verification'] )
+			? (string) $body['verification']
+			: '';
+
+		if ( $reported !== $requested ) {
+			return new \WP_Error(
+				'audience_verification_mismatch',
+				sprintf(
+					'Verification contract mismatch: requested "%s" but the Cloud Function %s. ' .
+					'This usually means an outdated audience function is deployed that does not ' .
+					'honor the verification contract. Aborting before any audience is saved or a ' .
+					'draft is created to avoid targeting recipients outside the intended cohort. ' .
+					'Redeploy the latest audience Cloud Functions and retry.',
+					$requested,
+					'' === $reported ? 'did not report one' : sprintf( 'applied "%s"', $reported )
+				),
+				array( 'status' => 502 )
+			);
+		}
+
+		return $requested;
+	}
+
+	/**
 	 * Abort unless the Cloud Function confirmed the exact verification mode that
 	 * was requested.
-	 *
-	 * Older audience function deployments that predate the `verification`
-	 * contract either omit the field from their response or apply a different
-	 * filter than requested. Trusting the locally-resolved mode in that case
-	 * would persist and label an audience (e.g. as "unverified") whose actual
-	 * membership does not match — risking a newsletter send to recipients
-	 * outside the operator's intended cohort. Fail closed before any audience is
-	 * written or a draft is created.
 	 *
 	 * @param mixed  $body      Decoded JSON response body.
 	 * @param string $requested verified|unverified|all
 	 * @return string The server-confirmed verification mode (equal to $requested).
 	 */
 	protected static function assert_response_verification( $body, string $requested ): string {
-		$reported = is_array( $body ) && isset( $body['verification'] )
-			? (string) $body['verification']
-			: '';
-
-		if ( $reported !== $requested ) {
-			WP_CLI::error( sprintf(
-				'Verification contract mismatch: requested "%s" but the Cloud Function %s. ' .
-				'This usually means an outdated audience function is deployed that does not ' .
-				'honor the verification contract. Aborting before any audience is saved or a ' .
-				'draft is created to avoid targeting recipients outside the intended cohort. ' .
-				'Redeploy the latest audience Cloud Functions and retry.',
-				$requested,
-				'' === $reported ? 'did not report one' : sprintf( 'applied "%s"', $reported )
-			) );
+		$result = self::check_response_verification( $body, $requested );
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
 		}
 
-		return $requested;
+		return $result;
+	}
+
+	/**
+	 * Normalize and validate a verification mode string.
+	 *
+	 * @param string $verification Raw mode.
+	 * @return string|\WP_Error verified|unverified|all, or WP_Error.
+	 */
+	protected static function normalize_verification_mode( string $verification ) {
+		$mode = strtolower( trim( $verification ) );
+		if ( ! in_array( $mode, array( 'verified', 'unverified', 'all' ), true ) ) {
+			return new \WP_Error(
+				'invalid_verification_mode',
+				'Verification must be one of: verified, unverified, all.',
+				array( 'status' => 400 )
+			);
+		}
+
+		return $mode;
 	}
 }

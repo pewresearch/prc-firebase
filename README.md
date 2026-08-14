@@ -1,5 +1,7 @@
 # PRC Firebase
 
+> Canonical docs: [docs/plugins/prc-firebase/](../../docs/plugins/prc-firebase/)
+
 Google Firebase integration for the PRC Platform. Initializes the Kreait Firebase PHP SDK on the server, registers the modern `@prc/firebase` JavaScript script module for blocks, and provides the legacy `firebase` script handle (compat API) for older interactives.
 
 ## What it does
@@ -76,7 +78,7 @@ Before beta or production data-table Firebase reads work, complete these ops ste
 |------|--------------------|
 | `firebase-service-account.json` | `bin/setup/generate-firebase-service-account.sh` at local bootstrap / VIP deploy. Selects the Platform Secrets item tagged for the target env (`production` vs `alpha`/`beta`/`canary`/`local`). |
 
-Do not commit this file. See `docs/DEPENDENCY_AUTH.md`.
+Do not commit this file. See `docs/dependency-auth.md`.
 
 ## Key files
 
