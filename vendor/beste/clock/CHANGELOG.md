@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## Unreleased
+
+## 3.1.0 - 2026-08-22
+
+Deprecates `Beste\Clock` in favor of `Psr\Clock\ClockInterface`. The implementations continue to implement
+the deprecated interface for backwards compatibility. Please type against `Psr\Clock\ClockInterface`.
+`Beste\Clock` will be removed in 4.0.
+
 ## 3.0.0 - 2022-11-26
 This release replaces `stella-maris/clock` with `psr/clock`.
 
