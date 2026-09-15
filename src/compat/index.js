@@ -11,17 +11,25 @@ function loadScript(slug, script) {
 	}
 }
 
-// Establish the main firebase config object
+function isUsableFirebaseConfig(config) {
+	return (
+		config && typeof config.apiKey === 'string' && config.apiKey.length > 0
+	);
+}
+
 const { prcFirebaseConfig, prcFirebaseInteractivesConfig } = window;
 
-loadScript('firebase', firebase.initializeApp(prcFirebaseConfig));
-loadScript('firebaseDb', firebase.database());
-loadScript('firebaseAuth', firebase.auth());
+if (isUsableFirebaseConfig(prcFirebaseConfig)) {
+	loadScript('firebase', firebase.initializeApp(prcFirebaseConfig));
+	loadScript('firebaseDb', firebase.database());
+	loadScript('firebaseAuth', firebase.auth());
+}
 
-// Legacy Backport. Do not use in new code.
-loadScript(
-	'interactivesDb',
-	firebase.initializeApp(prcFirebaseInteractivesConfig, 'interactivesDb')
-);
+if (isUsableFirebaseConfig(prcFirebaseInteractivesConfig)) {
+	loadScript(
+		'interactivesDb',
+		firebase.initializeApp(prcFirebaseInteractivesConfig, 'interactivesDb')
+	);
+}
 
 window.interactivesDB = window.interactivesDb;
