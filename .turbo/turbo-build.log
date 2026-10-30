@@ -1,9 +1,9 @@
 
-> @prc/firebase@1.1.3 build
+> @prc/firebase@1.1.4 build
 > npm run build:module && npm run build:compat
 
 
-> @prc/firebase@1.1.3 build:module
+> @prc/firebase@1.1.4 build:module
 > wp-scripts build --config webpack.config.js
 
 Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
@@ -32,9 +32,9 @@ Entrypoints:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 9242 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 9436 ms
 
-> @prc/firebase@1.1.3 build:compat
+> @prc/firebase@1.1.4 build:compat
 > wp-scripts build --config webpack.compat.config.js
 
 Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
@@ -63,4 +63,4 @@ Entrypoints:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 9388 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 8104 ms
