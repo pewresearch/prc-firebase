@@ -183,7 +183,7 @@ class Assets {
 	 *     interactives database (read by `src/compat/index.js`).
 	 *
 	 * Moved verbatim from
-	 * `prc-scripts/includes/scripts/class-scripts.php::localize_firebase()`.
+	 * `prc-shared/includes/scripts/class-scripts.php::localize_firebase()`.
 	 *
 	 * @param string $script_slug The script handle to localize onto.
 	 * @return void
