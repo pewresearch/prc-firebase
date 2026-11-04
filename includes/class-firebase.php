@@ -21,6 +21,8 @@ namespace PRC\Platform;
 
 use Google\Auth\Credentials\ServiceAccountCredentials;
 use Kreait\Firebase\Factory;
+use Kreait\Firebase\Http\HttpClientOptions;
+use PRC\Platform\Firebase\Database_Registry;
 use WP_Error;
 
 /**
@@ -64,6 +66,20 @@ class Firebase {
 	public $auth;
 
 	/**
+	 * Cached Realtime Database instances keyed by normalized URL and HTTP options.
+	 *
+	 * @var array<string, \Kreait\Firebase\Contract\Database>
+	 */
+	private $databases = array();
+
+	/**
+	 * Memoized service account project id.
+	 *
+	 * @var string|null
+	 */
+	private $service_account_project_id = null;
+
+	/**
 	 * Initialize the SDK.
 	 *
 	 * The optional `$loader` argument is preserved purely for backward
@@ -97,6 +113,173 @@ class Firebase {
 		$this->instance = ( new Factory() )->withServiceAccount( $credentials );
 		$this->db       = $this->instance->createDatabase();
 		$this->auth     = $this->instance->createAuth();
+	}
+
+	/**
+	 * Return a Realtime Database handle by logical name.
+	 *
+	 * With no name (or null/empty) and no options, returns the default
+	 * `$this->db` for backward compatibility. Named databases resolve through
+	 * {@see Database_Registry}. Handles are cached per URL and options.
+	 *
+	 * `$options` sets HTTP timeouts for this database client only (`timeout`
+	 * and `connect_timeout`, in seconds). Named databases default to
+	 * {@see Database_Registry::DEFAULT_HTTP_OPTIONS}; pass larger values for
+	 * big reads or exports, or `0` to remove a timeout. The default database
+	 * (`$name` null) and `$this->db` keep Guzzle's defaults (no timeout), so
+	 * existing callers, exports and CLI jobs are unaffected. The timeouts also
+	 * cover the Google OAuth token fetch made by that client.
+	 *
+	 * @since 1.1.0
+	 * @param string|null $name    Logical name (`quiz-builder`, `user-accounts`, …), or null for default.
+	 * @param array       $options Optional HTTP timeouts in seconds: `timeout`, `connect_timeout`.
+	 * @return \Kreait\Firebase\Contract\Database|WP_Error|null Database, WP_Error when unconfigured, or null when SDK did not init.
+	 */
+	public function get_database( ?string $name = null, array $options = array() ) {
+		if ( null === $name || '' === $name ) {
+			$options = self::normalize_http_options( $options );
+			if ( empty( $options ) ) {
+				return $this->db;
+			}
+			return $this->create_database( null, $options );
+		}
+
+		if ( null === $this->instance ) {
+			return null;
+		}
+
+		$url = Database_Registry::from_wordpress()->get_url( $name );
+		if ( is_wp_error( $url ) ) {
+			return $url;
+		}
+
+		return $this->get_database_for_uri( $url, array_merge( Database_Registry::DEFAULT_HTTP_OPTIONS, $options ) );
+	}
+
+	/**
+	 * Return a Realtime Database handle for an explicit URL.
+	 *
+	 * Escape hatch for transitional cutovers when a caller already has a URL.
+	 * Prefer {@see get_database()} with a logical name.
+	 *
+	 * @since 1.1.0
+	 * @param string $uri     Realtime Database URL.
+	 * @param array  $options Optional HTTP timeouts in seconds: `timeout`, `connect_timeout`.
+	 * @return \Kreait\Firebase\Contract\Database|WP_Error|null
+	 */
+	public function get_database_for_uri( string $uri, array $options = array() ) {
+		$uri = trim( $uri );
+		if ( '' === $uri ) {
+			return new WP_Error( 'firebase_database_unconfigured', 'Firebase database URL is empty.' );
+		}
+
+		return $this->create_database( $uri, self::normalize_http_options( $options ) );
+	}
+
+	/**
+	 * Identify the database a handle talks to, for namespacing object-cache keys.
+	 *
+	 * Combines the service account's project, the logical name and the
+	 * registry URL host, so cached values cannot collide across databases and
+	 * stop being reachable when a name is repointed to another project or
+	 * instance. Pass the same `$name` given to {@see get_database()}.
+	 *
+	 * @since 1.1.0
+	 * @param string|null $name Logical name, or null for the default database.
+	 * @return string
+	 */
+	public function get_database_scope( ?string $name = null ): string {
+		$project = $this->get_service_account_project_id();
+		$host    = '';
+
+		if ( null !== $name && '' !== $name ) {
+			$url  = Database_Registry::from_wordpress()->get_url( $name );
+			$host = is_wp_error( $url ) ? 'unconfigured' : (string) wp_parse_url( $url, PHP_URL_HOST );
+		} else {
+			$name = 'default';
+		}
+
+		return implode( ':', array( '' !== $project ? $project : 'unknown-project', $name, $host ) );
+	}
+
+	/**
+	 * Build (or reuse) a Database client for a URL and set of HTTP options.
+	 *
+	 * @param string|null $uri     Database URL, or null for the project's default database.
+	 * @param array       $options Normalized HTTP options.
+	 * @return \Kreait\Firebase\Contract\Database|WP_Error|null
+	 */
+	private function create_database( ?string $uri, array $options ) {
+		if ( null === $this->instance ) {
+			return null;
+		}
+
+		$cache_key = ( null === $uri ? 'default' : rtrim( $uri, '/' ) ) . '|' . wp_json_encode( $options );
+		if ( isset( $this->databases[ $cache_key ] ) ) {
+			return $this->databases[ $cache_key ];
+		}
+
+		try {
+			$factory = $this->instance;
+			if ( ! empty( $options ) ) {
+				$http_options = HttpClientOptions::default();
+				if ( isset( $options['timeout'] ) ) {
+					$http_options = $http_options->withTimeout( $options['timeout'] );
+				}
+				if ( isset( $options['connect_timeout'] ) ) {
+					$http_options = $http_options->withConnectTimeout( $options['connect_timeout'] );
+				}
+				$factory = $factory->withHttpClientOptions( $http_options );
+			}
+			if ( null !== $uri ) {
+				$factory = $factory->withDatabaseUri( $uri );
+			}
+			$db = $factory->createDatabase();
+		} catch ( \Throwable $e ) {
+			return new WP_Error(
+				'firebase_database_init',
+				'Failed to initialize Firebase database: ' . $e->getMessage()
+			);
+		}
+
+		$this->databases[ $cache_key ] = $db;
+
+		return $db;
+	}
+
+	/**
+	 * Keep only positive `timeout` / `connect_timeout` values, as floats.
+	 *
+	 * @param array $options Raw options.
+	 * @return array<string, float>
+	 */
+	private static function normalize_http_options( array $options ): array {
+		$normalized = array();
+		foreach ( array( 'connect_timeout', 'timeout' ) as $key ) {
+			if ( isset( $options[ $key ] ) && (float) $options[ $key ] > 0 ) {
+				$normalized[ $key ] = (float) $options[ $key ];
+			}
+		}
+		return $normalized;
+	}
+
+	/**
+	 * Read the project id from the service account key (memoized).
+	 *
+	 * @return string Project id, or an empty string when unavailable.
+	 */
+	private function get_service_account_project_id(): string {
+		if ( null === $this->service_account_project_id ) {
+			$this->service_account_project_id = '';
+			$credentials                      = $this->localize_server_side_credentials();
+			if ( is_string( $credentials ) ) {
+				$decoded = json_decode( $credentials, true );
+				if ( is_array( $decoded ) && is_string( $decoded['project_id'] ?? null ) ) {
+					$this->service_account_project_id = $decoded['project_id'];
+				}
+			}
+		}
+		return $this->service_account_project_id;
 	}
 
 	/**
