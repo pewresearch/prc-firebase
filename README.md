@@ -74,9 +74,9 @@ Before preprod or production data-table Firebase reads work, complete these ops 
 
 ## Service account file (VIP private dir)
 
-| File                            | How it is produced                                                                                                                                                                                                     |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `firebase-service-account.json` | `bin/setup/generate-firebase-service-account.sh` at local bootstrap / VIP deploy. Selects the Platform Secrets item tagged for the target env (`production` vs `beta`/`canary`/`local`; preprod reads the `beta` tag). |
+| File                            | How it is produced                                                                                                                                                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `firebase-service-account.json` | `bin/setup/generate-firebase-service-account.sh` at local bootstrap / VIP deploy. Selects the Platform Secrets item tagged with the target env (`production`, `preprod`, `staging`, `test1`, `test2`, or `local`). |
 
 Do not commit this file. See `docs/dependency-auth.md`.
 
