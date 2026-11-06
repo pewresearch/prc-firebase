@@ -375,4 +375,69 @@ class Firebase {
 
 		return $resp['id_token'];
 	}
+
+	/**
+	 * Capture a page element with the screenshotElement Cloud Function.
+	 *
+	 * `$args` is the function's request body: `url` (required), `selector`,
+	 * `waitMs`, `viewportWidth`, `viewportHeight`, `captureElement`,
+	 * `deviceScaleFactor`. When `basicAuth` is not set, the VIP basic auth
+	 * gate login for `url` is added, which is null outside this
+	 * non-production environment's own hosts.
+	 *
+	 * @since 1.3.0
+	 * @param array<string, mixed> $args Request body.
+	 * @return string|WP_Error PNG bytes, or WP_Error on failure.
+	 */
+	public function screenshot_element( array $args ) {
+		$url = is_string( $args['url'] ?? null ) ? $args['url'] : '';
+		if ( '' === $url ) {
+			return new WP_Error( 'firebase_screenshot', 'url is required.' );
+		}
+
+		$endpoints = apply_filters( 'prc_platform_firebase_render_endpoints', array() );
+		$endpoint  = is_array( $endpoints ) && is_string( $endpoints['screenshot_element'] ?? null ) ? $endpoints['screenshot_element'] : '';
+		if ( '' === $endpoint ) {
+			return new WP_Error( 'firebase_screenshot', 'screenshot_element endpoint is not configured.' );
+		}
+
+		$id_token = $this->get_id_token( $endpoint );
+		if ( is_wp_error( $id_token ) ) {
+			return $id_token;
+		}
+
+		if ( ! array_key_exists( 'basicAuth', $args ) && function_exists( '\PRC\Platform\Basic_Auth_Gate\credentials_for' ) ) {
+			$args['basicAuth'] = \PRC\Platform\Basic_Auth_Gate\credentials_for( $url );
+		}
+
+		$response = wp_remote_post(
+			$endpoint,
+			array(
+				'timeout' => 120, // phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- screenshotElement waits waitMs plus render time.
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $id_token,
+					'Content-Type'  => 'application/json',
+					'Accept'        => 'image/png',
+				),
+				'body'    => wp_json_encode( $args ),
+			)
+		);
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		$body = (string) wp_remote_retrieve_body( $response );
+		if ( $code >= 200 && $code < 300 && str_starts_with( $body, "\x89PNG" ) ) {
+			return $body;
+		}
+
+		$message = 'screenshotElement request failed.';
+		$json    = json_decode( $body, true );
+		if ( is_array( $json ) && is_string( $json['error'] ?? null ) && '' !== $json['error'] ) {
+			$message = $json['error'];
+		}
+
+		return new WP_Error( 'firebase_screenshot', $message, array( 'status' => $code ) );
+	}
 }
