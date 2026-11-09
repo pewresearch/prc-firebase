@@ -44,6 +44,10 @@ class Firebase {
 	 */
 	public static $handle = '@prc/firebase';
 
+	public const USER_TOKEN_HEADER = 'X-PRC-User-Token';
+
+	public const REQUEST_UID_PARAM = '_prc_firebase_uid';
+
 	/**
 	 * The instance of the Firebase SDK factory.
 	 *
@@ -325,6 +329,70 @@ class Firebase {
 		}
 
 		return $service_account_file;
+	}
+
+	/**
+	 * Verify a Firebase Auth ID token and return the user's UID.
+	 *
+	 * @since 1.4.0
+	 * @param string|null $token Raw ID token from the client.
+	 * @return string|WP_Error Verified UID, or a WP_Error carrying an HTTP status.
+	 */
+	public function verify_user_token( ?string $token ) {
+		if ( null === $token || '' === trim( $token ) ) {
+			return new WP_Error( 'missing_token', 'X-PRC-User-Token header is required.', array( 'status' => 401 ) );
+		}
+
+		if ( ! $this->auth ) {
+			return new WP_Error( 'firebase_unavailable', 'Firebase is not configured.', array( 'status' => 503 ) );
+		}
+
+		try {
+			$uid = $this->auth->verifyIdToken( $token )->claims()->get( 'sub' );
+		} catch ( \Throwable $e ) {
+			return new WP_Error( 'invalid_token', 'Invalid authentication token.', array( 'status' => 401 ) );
+		}
+
+		if ( ! is_string( $uid ) || '' === $uid ) {
+			return new WP_Error( 'invalid_token', 'Invalid authentication token.', array( 'status' => 401 ) );
+		}
+
+		return $uid;
+	}
+
+	/**
+	 * REST permission callback: verify the `X-PRC-User-Token` header.
+	 *
+	 * Stores the verified UID on the request so handlers read it with
+	 * {@see get_request_uid()} instead of verifying a second time. The
+	 * handler never sees a client-supplied value, because this callback
+	 * always overwrites the param before the handler runs.
+	 *
+	 * @since 1.4.0
+	 * @param \WP_REST_Request $request The incoming request.
+	 * @return true|WP_Error
+	 */
+	public function authorize_rest_request( \WP_REST_Request $request ) {
+		$uid = $this->verify_user_token( $request->get_header( self::USER_TOKEN_HEADER ) );
+		if ( is_wp_error( $uid ) ) {
+			return $uid;
+		}
+
+		$request->set_param( self::REQUEST_UID_PARAM, $uid );
+
+		return true;
+	}
+
+	/**
+	 * Read the UID that {@see authorize_rest_request()} verified for this request.
+	 *
+	 * @since 1.4.0
+	 * @param \WP_REST_Request $request The incoming request.
+	 * @return string Verified UID, or an empty string when the route did not authorize.
+	 */
+	public static function get_request_uid( \WP_REST_Request $request ): string {
+		$uid = $request->get_param( self::REQUEST_UID_PARAM );
+		return is_string( $uid ) ? $uid : '';
 	}
 
 	/**
