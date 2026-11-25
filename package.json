@@ -4,6 +4,10 @@
 	"license": "GPL-2.0-or-later",
 	"version": "1.4.0",
 	"module": "build/module.min.js",
+	"exports": {
+		".": "./build/module.min.js",
+		"./browser-messaging": "./build/browser-messaging.min.js"
+	},
 	"scripts": {
 		"build": "npm run build:module && npm run build:compat",
 		"build:module": "wp-scripts build --config webpack.config.js",
@@ -21,6 +25,6 @@
 		"webpack-bundle-analyzer": "^4.10.2"
 	},
 	"dependencies": {
-		"firebase": "^10.12.4"
+		"firebase": "^12.19.0"
 	}
 }

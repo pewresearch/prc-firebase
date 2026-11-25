@@ -9,30 +9,47 @@
 Browserslist: browsers data (caniuse-lite) is 7 months old. Please run:
   npx update-browserslist-db@latest
   Why you should do it regularly: https://github.com/browserslist/update-db#readme
-asset [1m[33m./module.min.js[39m[22m [1m[33m244 KiB[39m[22m [1m[32m[emitted][39m[22m [javascript module] [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (name: module) 1 related asset
-asset [1m[32m./module.min.asset.php[39m[22m 104 bytes [1m[32m[emitted][39m[22m (name: module)
-Entrypoint [1mmodule[39m[22m [1m[33m[big][39m[22m 245 KiB (1.52 MiB) = [1m[32m./module.min.js[39m[22m 244 KiB [1m[32m./module.min.asset.php[39m[22m 104 bytes 1 auxiliary asset
-orphan modules 1.13 MiB [1m[33m[orphan][39m[22m 13 modules
-runtime modules 396 bytes 2 modules
-[1m./src/index.js + 13 modules[39m[22m 1.14 MiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+module:
+  asset [1m[33m./module.min.js[39m[22m [1m[33m273 KiB[39m[22m [1m[32m[emitted][39m[22m [javascript module] [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (name: module) 1 related asset
+  asset [1m[32m./module.min.asset.php[39m[22m 104 bytes [1m[32m[emitted][39m[22m (name: module)
+  Entrypoint [1mmodule[39m[22m [1m[33m[big][39m[22m 273 KiB (1.63 MiB) = [1m[32m./module.min.js[39m[22m 273 KiB [1m[32m./module.min.asset.php[39m[22m 104 bytes 1 auxiliary asset
+  orphan modules 1.24 MiB [1m[33m[orphan][39m[22m 16 modules
+  runtime modules 396 bytes 2 modules
+  [1m./src/index.js + 16 modules[39m[22m 1.24 MiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
 
-[1m[33mWARNING[39m[22m in [1masset size limit: The following asset(s) exceed the recommended size limit (244 KiB).
-This can impact web performance.
-Assets: 
-  ./module.min.js (244 KiB)[39m[22m
+  [1m[33mWARNING[39m[22m in [1masset size limit: The following asset(s) exceed the recommended size limit (244 KiB).
+  This can impact web performance.
+  Assets: 
+    ./module.min.js (273 KiB)[39m[22m
 
-[1m[33mWARNING[39m[22m in [1mentrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
-Entrypoints:
-  module (245 KiB)
-      ./module.min.js
-      ./module.min.asset.php
-[39m[22m
+  [1m[33mWARNING[39m[22m in [1mentrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
+  Entrypoints:
+    module (273 KiB)
+        ./module.min.js
+        ./module.min.asset.php
+  [39m[22m
 
-[1m[33mWARNING[39m[22m in [1mwebpack performance recommendations: 
-You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
-For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
+  [1m[33mWARNING[39m[22m in [1mwebpack performance recommendations: 
+  You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
+  For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 16010 ms
+  [1mmodule[39m[22m (webpack 5.106.2) compiled with [1m[33m3 warnings[39m[22m in 5731 ms
+
+browser-messaging:
+  asset [1m[32m./browser-messaging.min.js[39m[22m 3.73 KiB [1m[32m[emitted][39m[22m [javascript module] [1m[32m[minimized][39m[22m (name: browser-messaging) 1 related asset
+  asset [1m[32m./browser-messaging.min.asset.php[39m[22m 119 bytes [1m[32m[emitted][39m[22m (name: browser-messaging)
+  Entrypoint [1mbrowser-messaging[39m[22m 3.85 KiB (14.4 KiB) = [1m[32m./browser-messaging.min.js[39m[22m 3.73 KiB [1m[32m./browser-messaging.min.asset.php[39m[22m 119 bytes 1 auxiliary asset
+  runtime modules 396 bytes 2 modules
+  orphan modules 42 bytes [1m[33m[orphan][39m[22m 1 module
+  [1m./src/browser-messaging/index.js + 1 modules[39m[22m 8.46 KiB [1m[31m[not cacheable][39m[22m [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+  [1mbrowser-messaging[39m[22m (webpack 5.106.2) compiled [1m[32msuccessfully[39m[22m in 1073 ms
+
+firebase-messaging-sw:
+  asset [1m[32mfirebase-messaging-sw.js[39m[22m 1.01 KiB [1m[32m[emitted][39m[22m [1m[32m[minimized][39m[22m (name: firebase-messaging-sw) 1 related asset
+  asset [1m[32mfirebase-messaging-sw.asset.php[39m[22m 84 bytes [1m[32m[emitted][39m[22m (name: firebase-messaging-sw)
+  Entrypoint [1mfirebase-messaging-sw[39m[22m 1.09 KiB (4.27 KiB) = [1m[32mfirebase-messaging-sw.js[39m[22m 1.01 KiB [1m[32mfirebase-messaging-sw.asset.php[39m[22m 84 bytes 1 auxiliary asset
+  [1m./src/browser-messaging/firebase-messaging-sw.js[39m[22m 2.6 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+  [1mfirebase-messaging-sw[39m[22m (webpack 5.106.2) compiled [1m[32msuccessfully[39m[22m in 1071 ms
 
 > @prc/firebase@1.4.0 build:compat
 > wp-scripts build --config webpack.compat.config.js
@@ -40,21 +57,21 @@ webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 16010 ms
 Browserslist: browsers data (caniuse-lite) is 7 months old. Please run:
   npx update-browserslist-db@latest
   Why you should do it regularly: https://github.com/browserslist/update-db#readme
-asset [1m[33mindex.js[39m[22m [1m[33m314 KiB[39m[22m [1m[32m[emitted][39m[22m [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (name: index)
+asset [1m[33mindex.js[39m[22m [1m[33m345 KiB[39m[22m [1m[32m[emitted][39m[22m [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (name: index)
 asset [1m[32mindex.asset.php[39m[22m 84 bytes [1m[32m[emitted][39m[22m (name: index)
-Entrypoint [1mindex[39m[22m [1m[33m[big][39m[22m 314 KiB = [1m[32mindex.js[39m[22m 314 KiB [1m[32mindex.asset.php[39m[22m 84 bytes
-orphan modules 1.24 MiB [1m[33m[orphan][39m[22m 16 modules
+Entrypoint [1mindex[39m[22m [1m[33m[big][39m[22m 345 KiB = [1m[32mindex.js[39m[22m 345 KiB [1m[32mindex.asset.php[39m[22m 84 bytes
+orphan modules 1.34 MiB [1m[33m[orphan][39m[22m 20 modules
 runtime modules 670 bytes 3 modules
-[1m./src/compat/index.js + 16 modules[39m[22m 1.24 MiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+[1m./src/compat/index.js + 20 modules[39m[22m 1.35 MiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
 
 [1m[33mWARNING[39m[22m in [1masset size limit: The following asset(s) exceed the recommended size limit (244 KiB).
 This can impact web performance.
 Assets: 
-  index.js (314 KiB)[39m[22m
+  index.js (345 KiB)[39m[22m
 
 [1m[33mWARNING[39m[22m in [1mentrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
 Entrypoints:
-  index (314 KiB)
+  index (345 KiB)
       index.js
       index.asset.php
 [39m[22m
@@ -63,4 +80,4 @@ Entrypoints:
 You can limit the size of your bundles by using import() or require.ensure to lazy load some parts of your application.
 For more info visit https://webpack.js.org/guides/code-splitting/[39m[22m
 
-webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 18670 ms
+webpack 5.106.2 compiled with [1m[33m3 warnings[39m[22m in 3829 ms

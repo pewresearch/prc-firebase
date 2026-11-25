@@ -69,6 +69,10 @@ class Bootstrap {
 		require_once plugin_dir_path( __DIR__ ) . '/includes/class-database-registry.php';
 		require_once plugin_dir_path( __DIR__ ) . '/includes/class-firebase.php';
 		require_once plugin_dir_path( __DIR__ ) . '/includes/class-assets.php';
+		require_once plugin_dir_path( __DIR__ ) . '/includes/class-fcm-device-registration.php';
+		require_once plugin_dir_path( __DIR__ ) . '/includes/class-fcm-messaging.php';
+		require_once plugin_dir_path( __DIR__ ) . '/includes/class-rest-api.php';
+		require_once plugin_dir_path( __DIR__ ) . '/includes/class-user-profile.php';
 
 		$this->loader = new Loader();
 	}
@@ -87,6 +91,8 @@ class Bootstrap {
 	private function init_dependencies() {
 		new \PRC\Platform\Firebase( $this->get_loader() );
 		new Assets( $this->get_loader() );
+		new Rest_API( $this->get_loader() );
+		new User_Profile( $this->get_loader() );
 	}
 
 	/**

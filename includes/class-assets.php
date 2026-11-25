@@ -22,6 +22,12 @@
  *      Required globals (`prcFirebaseConfig`, `prcFirebaseInteractivesConfig`)
  *      are localized onto that handle by `localize_firebase()`.
  *
+ *   3. The `@prc/firebase/browser-messaging` script module (built from
+ *      `src/browser-messaging/index.js`), consumed via
+ *      `import from '@prc/firebase/browser-messaging'`. Depends on
+ *      `@prc/firebase`. The FCM service worker is emitted as
+ *      `build/firebase-messaging-sw.js` alongside `build/browser-messaging.min.js`.
+ *
  * @package PRC\Platform\Firebase
  */
 
@@ -48,6 +54,13 @@ class Assets {
 	const COMPAT_HANDLE = 'firebase';
 
 	/**
+	 * Script module handle for opt-in browser push / FCM helpers.
+	 *
+	 * @var string
+	 */
+	const BROWSER_MESSAGING_MODULE_HANDLE = '@prc/firebase/browser-messaging';
+
+	/**
 	 * Constructor.
 	 *
 	 * @param Loader|null $loader The loader instance.
@@ -68,6 +81,7 @@ class Assets {
 		// Legacy compat script registration + localized config globals.
 		$loader->add_action( 'wp_enqueue_scripts', $this, 'register_compat_script', 0 );
 		$loader->add_action( 'admin_enqueue_scripts', $this, 'register_compat_script', 0 );
+		$loader->add_action( 'enqueue_block_editor_assets', $this, 'register_compat_script', 0 );
 	}
 
 	/**
@@ -94,6 +108,39 @@ class Assets {
 			$asset_file['dependencies'] ?? array(),
 			$asset_file['version'] ?? null
 		);
+
+		$this->register_browser_module( self::BROWSER_MESSAGING_MODULE_HANDLE, 'browser-messaging' );
+	}
+
+	/**
+	 * Register the browser messaging script module.
+	 *
+	 * @param string $handle The handle of the script module.
+	 * @param string $name The name of the script module.
+	 * @return void
+	 */
+	private function register_browser_module( string $handle, string $name ): void {
+		$asset_path = plugin_dir_path( __DIR__ ) . "build/{$name}.min.asset.php";
+		if ( ! file_exists( $asset_path ) ) {
+			return;
+		}
+		$asset_file = include $asset_path;
+		if ( ! is_array( $asset_file ) ) {
+			return;
+		}
+		wp_register_script_module(
+			$handle,
+			plugin_dir_url( __DIR__ ) . "build/{$name}.min.js",
+			array_values(
+				array_unique(
+					array_merge(
+						$asset_file['dependencies'] ?? array(),
+						array( self::MODULE_HANDLE )
+					) 
+				) 
+			),
+			$asset_file['version'] ?? null
+		);
 	}
 
 	/**
@@ -106,26 +153,59 @@ class Assets {
 	 */
 	public function register_compat_script(): void {
 		$asset_path = plugin_dir_path( __DIR__ ) . 'build/compat/index.asset.php';
-		if ( ! file_exists( $asset_path ) ) {
-			return;
-		}
+		if ( file_exists( $asset_path ) ) {
+			$asset_file = include $asset_path;
+			if ( is_array( $asset_file ) ) {
+				$registered = wp_register_script(
+					self::COMPAT_HANDLE,
+					plugin_dir_url( __DIR__ ) . 'build/compat/index.js',
+					$asset_file['dependencies'] ?? array(),
+					$asset_file['version'] ?? null,
+					true
+				);
 
-		$asset_file = include $asset_path;
-		if ( ! is_array( $asset_file ) ) {
-			return;
+				if ( $registered ) {
+					$this->localize_firebase( self::COMPAT_HANDLE );
+				}
+			}
 		}
+	}
 
-		$registered = wp_register_script(
-			self::COMPAT_HANDLE,
-			plugin_dir_url( __DIR__ ) . 'build/compat/index.js',
-			$asset_file['dependencies'] ?? array(),
-			$asset_file['version'] ?? null,
-			true
+	/**
+	 * Get the Firebase credentials for the given environment.
+	 *
+	 * @param string $environment The environment to get the credentials for.
+	 * @return array|false The credentials or false if the credentials are not defined.
+	 */
+	private function get_keys( $environment ) {
+		if (
+			( ! defined( 'PRC_PLATFORM_FIREBASE_KEY' ) && ! defined( 'PRC_PLATFORM_FIREBASE_KEY__DEV' ) ) || 
+			( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DOMAIN' ) && ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DOMAIN__DEV' ) ) ||
+			( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DB' ) && ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DB__DEV' ) ) ||
+			( ! defined( 'PRC_PLATFORM_FIREBASE_INTERACTIVES_DB' ) && ! defined( 'PRC_PLATFORM_FIREBASE_INTERACTIVES_DB__DEV' ) ) ||
+			( ! defined( 'PRC_PLATFORM_FIREBASE_PROJECT_ID' ) && ! defined( 'PRC_PLATFORM_FIREBASE_PROJECT_ID__DEV' ) ) ||
+			( ! defined( 'PRC_PLATFORM_FIREBASE_STORAGE_BUCKET' ) && ! defined( 'PRC_PLATFORM_FIREBASE_STORAGE_BUCKET__DEV' ) ) ||
+			( ! defined( 'PRC_PLATFORM_FIREBASE_MESSAGING_SENDER_ID' ) && ! defined( 'PRC_PLATFORM_FIREBASE_MESSAGING_SENDER_ID__DEV' ) ) ||
+			( ! defined( 'PRC_PLATFORM_FIREBASE_APP_ID' ) && ! defined( 'PRC_PLATFORM_FIREBASE_APP_ID__DEV' ) ) ||
+			( ! defined( 'PRC_PLATFORM_FIREBASE_VAPID_KEY' ) && ! defined( 'PRC_PLATFORM_FIREBASE_VAPID_KEY__DEV' ) ) 
+		) {
+			return false;
+		}
+		// Force production credentials; flip back to `wp_get_environment_type()`
+		// to point local dev at staging Firebase data.
+		$keys = array(
+			'apiKey'            => 'production' === $environment ? \PRC_PLATFORM_FIREBASE_KEY : \PRC_PLATFORM_FIREBASE_KEY__DEV,
+			'authDomain'        => 'production' === $environment ? \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN : \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN__DEV,
+			'databaseURL'       => 'production' === $environment ? \PRC_PLATFORM_FIREBASE_AUTH_DB : \PRC_PLATFORM_FIREBASE_AUTH_DB__DEV,
+			'projectId'         => 'production' === $environment ? \PRC_PLATFORM_FIREBASE_PROJECT_ID : \PRC_PLATFORM_FIREBASE_PROJECT_ID__DEV,
+			'storageBucket'     => 'production' === $environment ? \PRC_PLATFORM_FIREBASE_STORAGE_BUCKET : \PRC_PLATFORM_FIREBASE_STORAGE_BUCKET__DEV,
+			'messagingSenderId' => 'production' === $environment ? \PRC_PLATFORM_FIREBASE_MESSAGING_SENDER_ID : \PRC_PLATFORM_FIREBASE_MESSAGING_SENDER_ID__DEV,
+			'appId'             => 'production' === $environment ? \PRC_PLATFORM_FIREBASE_APP_ID : \PRC_PLATFORM_FIREBASE_APP_ID__DEV,
+			'interactivesDb'    => 'production' === $environment ? \PRC_PLATFORM_FIREBASE_INTERACTIVES_DB : \PRC_PLATFORM_FIREBASE_INTERACTIVES_DB__DEV,
+			'vapidKey'          => 'production' === $environment ? \PRC_PLATFORM_FIREBASE_VAPID_KEY : \PRC_PLATFORM_FIREBASE_VAPID_KEY__DEV,
+			'messagingSwUrl'    => plugin_dir_url( __DIR__ ) . 'build/firebase-messaging-sw.js',
 		);
-
-		if ( $registered ) {
-			$this->localize_firebase( self::COMPAT_HANDLE );
-		}
+		return $keys;
 	}
 
 	/**
@@ -140,36 +220,20 @@ class Assets {
 	 * @return array
 	 */
 	public function filter_script_module_data( $data ) {
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_KEY' ) && ! defined( 'PRC_PLATFORM_FIREBASE_KEY__DEV' ) ) {
-			return $data;
-		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DOMAIN' ) && ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DOMAIN__DEV' ) ) {
-			return $data;
-		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DB' ) && ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DB__DEV' ) ) {
-			return $data;
-		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_INTERACTIVES_DB' ) && ! defined( 'PRC_PLATFORM_FIREBASE_INTERACTIVES_DB__DEV' ) ) {
-			return $data;
-		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_PROJECT_ID' ) && ! defined( 'PRC_PLATFORM_FIREBASE_PROJECT_ID__DEV' ) ) {
-			return $data;
-		}
-
 		$environment = wp_get_environment_type();
-		// Force production credentials; flip back to `wp_get_environment_type()`
-		// to point local dev at staging Firebase data.
-		// $environment = 'production';
-
-		$api_key     = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_KEY : \PRC_PLATFORM_FIREBASE_KEY__DEV;
-		$auth_domain = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN : \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN__DEV;
-		$auth_db     = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_AUTH_DB : \PRC_PLATFORM_FIREBASE_AUTH_DB__DEV;
-		$project_id  = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_PROJECT_ID : \PRC_PLATFORM_FIREBASE_PROJECT_ID__DEV;
-
-		$data['apiKey']      = $api_key;
-		$data['authDomain']  = $auth_domain;
-		$data['databaseURL'] = $auth_db;
-		$data['projectId']   = $project_id;
+		$keys        = $this->get_keys( $environment );
+		if ( ! $keys ) { 
+			return $data;
+		}
+		$data['apiKey']                     = $keys['apiKey'];
+		$data['authDomain']                 = $keys['authDomain'];
+		$data['databaseURL']                = $keys['databaseURL'];
+		$data['projectId']                  = $keys['projectId'];
+		$data['storageBucket']              = $keys['storageBucket'];
+		$data['messagingSenderId']          = $keys['messagingSenderId'];
+		$data['appId']                      = $keys['appId']; 
+		$data['swConfig']['vapidKey']       = $keys['vapidKey']; 
+		$data['swConfig']['messagingSwUrl'] = $keys['messagingSwUrl'];
 
 		return $data;
 	}
@@ -189,47 +253,23 @@ class Assets {
 	 * @return void
 	 */
 	public function localize_firebase( string $script_slug ): void {
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_KEY' ) && ! defined( 'PRC_PLATFORM_FIREBASE_KEY__DEV' ) ) {
-			return;
-		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DOMAIN' ) && ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DOMAIN__DEV' ) ) {
-			return;
-		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DB' ) && ! defined( 'PRC_PLATFORM_FIREBASE_AUTH_DB__DEV' ) ) {
-			return;
-		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_INTERACTIVES_DB' ) && ! defined( 'PRC_PLATFORM_FIREBASE_INTERACTIVES_DB__DEV' ) ) {
-			return;
-		}
-		if ( ! defined( 'PRC_PLATFORM_FIREBASE_PROJECT_ID' ) && ! defined( 'PRC_PLATFORM_FIREBASE_PROJECT_ID__DEV' ) ) {
-			return;
-		}
-
 		$environment = wp_get_environment_type();
-
-		$api_key         = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_KEY : \PRC_PLATFORM_FIREBASE_KEY__DEV;
-		$auth_domain     = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN : \PRC_PLATFORM_FIREBASE_AUTH_DOMAIN__DEV;
-		$auth_db         = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_AUTH_DB : \PRC_PLATFORM_FIREBASE_AUTH_DB__DEV;
-		$interactives_db = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_INTERACTIVES_DB : \PRC_PLATFORM_FIREBASE_INTERACTIVES_DB__DEV;
-		$project_id      = 'production' === $environment ? \PRC_PLATFORM_FIREBASE_PROJECT_ID : \PRC_PLATFORM_FIREBASE_PROJECT_ID__DEV;
-
+		$keys        = $this->get_keys( $environment );
+		if ( ! $keys ) { 
+			return;
+		}
 		wp_localize_script(
 			$script_slug,
 			'prcFirebaseConfig',
-			array(
-				'apiKey'      => $api_key,
-				'authDomain'  => $auth_domain,
-				'databaseURL' => $auth_db,
-				'projectId'   => $project_id,
-			)
+			$keys
 		);
 		wp_localize_script(
 			$script_slug,
 			'prcFirebaseInteractivesConfig',
 			array(
-				'apiKey'      => $api_key,
-				'databaseURL' => $interactives_db,
-				'projectId'   => $project_id,
+				'apiKey'      => $keys['apiKey'],
+				'databaseURL' => $keys['interactivesDb'],
+				'projectId'   => $keys['projectId'],
 			)
 		);
 	}

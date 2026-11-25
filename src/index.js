@@ -43,6 +43,12 @@ import {
 	onChildAdded,
 	onChildRemoved,
 } from 'firebase/database';
+import {
+	getMessaging,
+	onRegistered,
+	onMessage,
+	register,
+} from 'firebase/messaging';
 
 /**
  * Read Firebase client config from the WP script-module data element.
@@ -59,6 +65,7 @@ function loadFirebaseConfig() {
 	try {
 		return JSON.parse(el.textContent);
 	} catch (err) {
+		// eslint-disable-next-line no-console -- note error loading FB
 		console.error('loadFirebaseConfig error:', err);
 		return {};
 	}
@@ -123,6 +130,18 @@ const _off = off;
 const _serverTimestamp = serverTimestamp;
 const _onChildAdded = onChildAdded;
 const _onChildRemoved = onChildRemoved;
+const _getMessaging = getMessaging;
+const _onRegistered = onRegistered;
+const _onMessage = onMessage;
+const _register = register;
+const _messagingSwUrl =
+	typeof firebaseConfig?.swConfig?.messagingSwUrl === 'string'
+		? firebaseConfig.swConfig.messagingSwUrl
+		: '';
+const _vapidKey =
+	typeof firebaseConfig?.swConfig?.vapidKey === 'string'
+		? firebaseConfig.swConfig.vapidKey
+		: '';
 export {
 	_app as app,
 	_auth as auth,
@@ -163,4 +182,10 @@ export {
 	_serverTimestamp as serverTimestamp,
 	_onChildAdded as onChildAdded,
 	_onChildRemoved as onChildRemoved,
+	_getMessaging as getMessaging,
+	_onRegistered as onRegistered,
+	_onMessage as onMessage,
+	_register as register,
+	_messagingSwUrl as messagingSwUrl,
+	_vapidKey as vapidKey,
 };

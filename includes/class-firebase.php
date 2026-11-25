@@ -70,6 +70,13 @@ class Firebase {
 	public $auth;
 
 	/**
+	 * The Messaging instance.
+	 *
+	 * @var \Kreait\Firebase\Messaging\
+	 */
+	public $messaging;
+
+	/**
 	 * Cached Realtime Database instances keyed by normalized URL and HTTP options.
 	 *
 	 * @var array<string, \Kreait\Firebase\Contract\Database>
@@ -117,6 +124,7 @@ class Firebase {
 		$this->instance = ( new Factory() )->withServiceAccount( $credentials );
 		$this->db       = $this->instance->createDatabase();
 		$this->auth     = $this->instance->createAuth();
+		$this->messaging = $this->instance->createMessaging();
 	}
 
 	/**

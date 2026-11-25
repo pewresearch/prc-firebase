@@ -21,7 +21,12 @@
 /******/ 
 /************************************************************************/
 
-;// ../../node_modules/@firebase/util/dist/index.esm2017.js
+;// ./node_modules/@firebase/util/dist/postinstall.mjs
+const getDefaultsFromPostinstall = () => (undefined);
+
+;// ./node_modules/@firebase/util/dist/index.esm.js
+
+
 /**
  * @license
  * Copyright 2017 Google LLC
@@ -177,6 +182,7 @@ const byteArrayToString = function (bytes) {
 // We define it as an object literal instead of a class because a class compiled down to es5 can't
 // be treeshaked. https://github.com/rollup/rollup/issues/1691
 // Static lookup maps, lazily populated by init_()
+// TODO(dlarocque): Define this as a class, since we no longer target ES5.
 const base64 = {
     /**
      * Maps bytes to characters.
@@ -573,7 +579,8 @@ const getDefaultsFromCookie = () => {
  */
 const getDefaults = () => {
     try {
-        return (getDefaultsFromGlobal() ||
+        return (getDefaultsFromPostinstall() ||
+            getDefaultsFromGlobal() ||
             getDefaultsFromEnvVariable() ||
             getDefaultsFromCookie());
     }
@@ -594,7 +601,7 @@ const getDefaults = () => {
  * @returns a URL host formatted like `127.0.0.1:9999` or `[::1]:4000` if available
  * @public
  */
-const getDefaultEmulatorHost = (productName) => { var _a, _b; return (_b = (_a = getDefaults()) === null || _a === void 0 ? void 0 : _a.emulatorHosts) === null || _b === void 0 ? void 0 : _b[productName]; };
+const getDefaultEmulatorHost = (productName) => getDefaults()?.emulatorHosts?.[productName];
 /**
  * Returns emulator hostname and port stored in the __FIREBASE_DEFAULTS__ object
  * for the given product.
@@ -624,13 +631,13 @@ const getDefaultEmulatorHostnameAndPort = (productName) => {
  * Returns Firebase app config stored in the __FIREBASE_DEFAULTS__ object.
  * @public
  */
-const getDefaultAppConfig = () => { var _a; return (_a = getDefaults()) === null || _a === void 0 ? void 0 : _a.config; };
+const getDefaultAppConfig = () => getDefaults()?.config;
 /**
  * Returns an experimental setting on the __FIREBASE_DEFAULTS__ object (properties
  * prefixed by "_")
  * @public
  */
-const getExperimentalSetting = (name) => { var _a; return (_a = getDefaults()) === null || _a === void 0 ? void 0 : _a[`_${name}`]; };
+const getExperimentalSetting = (name) => getDefaults()?.[`_${name}`];
 
 /**
  * @license
@@ -718,12 +725,22 @@ function createMockUserToken(token, projectId) {
     if (!sub) {
         throw new Error("mockUserToken must contain 'sub' or 'user_id' field!");
     }
-    const payload = Object.assign({ 
+    const payload = {
         // Set all required fields to decent defaults
-        iss: `https://securetoken.google.com/${project}`, aud: project, iat, exp: iat + 3600, auth_time: iat, sub, user_id: sub, firebase: {
+        iss: `https://securetoken.google.com/${project}`,
+        aud: project,
+        iat,
+        exp: iat + 3600,
+        auth_time: iat,
+        sub,
+        user_id: sub,
+        firebase: {
             sign_in_provider: 'custom',
             identities: {}
-        } }, token);
+        },
+        // Override with user options
+        ...token
+    };
     // Unsecured JWTs use the empty string as a signature.
     const signature = '';
     return [
@@ -783,8 +800,7 @@ function isMobileCordova() {
  */
 // Node detection logic from: https://github.com/iliakan/detect-node/
 function isNode() {
-    var _a;
-    const forceEnvironment = (_a = getDefaults()) === null || _a === void 0 ? void 0 : _a.forceEnvironment;
+    const forceEnvironment = getDefaults()?.forceEnvironment;
     if (forceEnvironment === 'node') {
         return true;
     }
@@ -866,6 +882,14 @@ function isSafari() {
         navigator.userAgent.includes('Safari') &&
         !navigator.userAgent.includes('Chrome'));
 }
+/** Returns true if we are running in Safari or WebKit */
+function isSafariOrWebkit() {
+    return (!isNode() &&
+        !!navigator.userAgent &&
+        (navigator.userAgent.includes('Safari') ||
+            navigator.userAgent.includes('WebKit')) &&
+        !navigator.userAgent.includes('Chrome'));
+}
 /**
  * This method checks if indexedDB is supported by current browser/service worker context
  * @return true if indexedDB is supported by current browser/service worker context
@@ -903,8 +927,7 @@ function validateIndexedDBOpenable() {
                 preExist = false;
             };
             request.onerror = () => {
-                var _a;
-                reject(((_a = request.error) === null || _a === void 0 ? void 0 : _a.message) || '');
+                reject(request.error?.message || '');
             };
         }
         catch (error) {
@@ -996,6 +1019,8 @@ class FirebaseError extends Error {
         this.name = ERROR_NAME;
         // Fix For ES5
         // https://github.com/Microsoft/TypeScript-wiki/blob/master/Breaking-Changes.md#extending-built-ins-like-error-array-and-map-may-no-longer-work
+        // TODO(dlarocque): Replace this with `new.target`: https://www.typescriptlang.org/docs/handbook/release-notes/typescript-2-2.html#support-for-newtarget
+        //                   which we can now use since we no longer target ES5.
         Object.setPrototypeOf(this, FirebaseError.prototype);
         // Maintains proper stack trace for where our error was thrown.
         // Only available on V8.
@@ -1022,12 +1047,34 @@ class ErrorFactory {
     }
 }
 function replaceTemplate(template, data) {
-    return template.replace(PATTERN, (_, key) => {
-        const value = data[key];
-        return value != null ? String(value) : `<${key}?>`;
-    });
+    try {
+        let ptr = 0;
+        let result = '';
+        while (ptr < template.length) {
+            const start = template.indexOf('{$', ptr);
+            if (start === -1) {
+                result += template.substring(ptr);
+                break;
+            }
+            const end = template.indexOf('}', start + 2);
+            if (end === -1) {
+                result += template.substring(ptr);
+                break;
+            }
+            const key = template.substring(start + 2, end);
+            const value = data[key];
+            result +=
+                template.substring(ptr, start) +
+                    (value != null ? String(value) : `<${key}?>`);
+            ptr = end + 1;
+        }
+        return result;
+    }
+    catch (e) {
+        // Should never happen, but fallback just in case
+        return template;
+    }
 }
-const PATTERN = /\{\$([^}]+)}/g;
 
 /**
  * @license
@@ -1780,7 +1827,7 @@ class ObserverProxy {
 }
 /** Turn synchronous function into one called asynchronously. */
 // eslint-disable-next-line @typescript-eslint/ban-types
-function index_esm2017_async(fn, onError) {
+function index_esm_async(fn, onError) {
     return (...args) => {
         Promise.resolve(true)
             .then(() => {
@@ -1991,34 +2038,6 @@ const stringLength = function (str) {
 
 /**
  * @license
- * Copyright 2022 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/**
- * Copied from https://stackoverflow.com/a/2117523
- * Generates a new uuid.
- * @public
- */
-const uuidv4 = function () {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-        const r = (Math.random() * 16) | 0, v = c === 'x' ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-    });
-};
-
-/**
- * @license
  * Copyright 2019 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -2151,10 +2170,90 @@ function getModularInstance(service) {
     }
 }
 
+/**
+ * @license
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Checks whether host is a cloud workstation or not.
+ * @public
+ */
+function isCloudWorkstation(url) {
+    // `isCloudWorkstation` is called without protocol in certain connect*Emulator functions
+    // In HTTP request builders, it's called with the protocol.
+    // If called with protocol prefix, it's a valid URL, so we extract the hostname
+    // If called without, we assume the string is the hostname.
+    try {
+        const host = url.startsWith('http://') || url.startsWith('https://')
+            ? new URL(url).hostname
+            : url;
+        return host.endsWith('.cloudworkstations.dev');
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * Makes a fetch request to the given server.
+ * Mostly used for forwarding cookies in Firebase Studio.
+ * @public
+ */
+async function pingServer(endpoint) {
+    const result = await fetch(endpoint, {
+        credentials: 'include'
+    });
+    return result.ok;
+}
 
-//# sourceMappingURL=index.esm2017.js.map
+/**
+ * @license
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * @public
+ * Generates a SHA-256 hash for the given input string.
+ *
+ * @param input The string to hash.
+ * @returns A promise that resolves to the SHA-256 hash as a hex string.
+ */
+async function generateSHA256Hash(input) {
+    const textEncoder = new TextEncoder();
+    const data = textEncoder.encode(input);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    // Convert ArrayBuffer to hex string
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hexHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hexHash;
+}
 
-;// ../../node_modules/@firebase/component/dist/esm/index.esm2017.js
+
+//# sourceMappingURL=index.esm.js.map
+
+;// ./node_modules/@firebase/component/dist/esm/index.esm.js
 
 
 /**
@@ -2275,10 +2374,9 @@ class Provider {
         return this.instancesDeferred.get(normalizedIdentifier).promise;
     }
     getImmediate(options) {
-        var _a;
         // if multipleInstances is not supported, use the default name
-        const normalizedIdentifier = this.normalizeInstanceIdentifier(options === null || options === void 0 ? void 0 : options.identifier);
-        const optional = (_a = options === null || options === void 0 ? void 0 : options.optional) !== null && _a !== void 0 ? _a : false;
+        const normalizedIdentifier = this.normalizeInstanceIdentifier(options?.identifier);
+        const optional = options?.optional ?? false;
         if (this.isInitialized(normalizedIdentifier) ||
             this.shouldAutoInitialize()) {
             try {
@@ -2410,9 +2508,9 @@ class Provider {
      * @returns a function to unregister the callback
      */
     onInit(callback, identifier) {
-        var _a;
         const normalizedIdentifier = this.normalizeInstanceIdentifier(identifier);
-        const existingCallbacks = (_a = this.onInitCallbacks.get(normalizedIdentifier)) !== null && _a !== void 0 ? _a : new Set();
+        const existingCallbacks = this.onInitCallbacks.get(normalizedIdentifier) ??
+            new Set();
         existingCallbacks.add(callback);
         this.onInitCallbacks.set(normalizedIdentifier, existingCallbacks);
         const existingInstance = this.instances.get(normalizedIdentifier);
@@ -2436,7 +2534,7 @@ class Provider {
             try {
                 callback(instance, identifier);
             }
-            catch (_a) {
+            catch {
                 // ignore errors in the onInit callback
             }
         }
@@ -2465,7 +2563,7 @@ class Provider {
                 try {
                     this.component.onInstanceCreated(this.container, instanceIdentifier, instance);
                 }
-                catch (_a) {
+                catch {
                     // ignore errors in the onInstanceCreatedCallback
                 }
             }
@@ -2563,9 +2661,9 @@ class ComponentContainer {
 }
 
 
-//# sourceMappingURL=index.esm2017.js.map
+//# sourceMappingURL=index.esm.js.map
 
-;// ../../node_modules/@firebase/logger/dist/esm/index.esm2017.js
+;// ./node_modules/@firebase/logger/dist/esm/index.esm.js
 /**
  * @license
  * Copyright 2017 Google LLC
@@ -2770,7 +2868,7 @@ function setUserLogHandler(logCallback, options) {
                 })
                     .filter(arg => arg)
                     .join(' ');
-                if (level >= (customLogLevel !== null && customLogLevel !== void 0 ? customLogLevel : instance.logLevel)) {
+                if (level >= (customLogLevel ?? instance.logLevel)) {
                     logCallback({
                         level: LogLevel[level].toLowerCase(),
                         message,
@@ -2784,7 +2882,7 @@ function setUserLogHandler(logCallback, options) {
 }
 
 
-//# sourceMappingURL=index.esm2017.js.map
+//# sourceMappingURL=index.esm.js.map
 
 ;// ../../node_modules/idb/build/wrap-idb-value.js
 const instanceOfAny = (object, constructors) => constructors.some((c) => object instanceof c);
@@ -2974,7 +3072,6 @@ const unwrap = (value) => reverseTransformCache.get(value);
 
 
 ;// ../../node_modules/idb/build/index.js
-/* unused harmony import specifier */ var build_wrap;
 
 
 
@@ -3021,7 +3118,7 @@ function deleteDB(name, { blocked } = {}) {
         // Casting due to https://github.com/microsoft/TypeScript-DOM-lib-generator/pull/1405
         event.oldVersion, event));
     }
-    return build_wrap(request).then(() => undefined);
+    return wrap(request).then(() => undefined);
 }
 
 const readMethods = ['get', 'getKey', 'getAll', 'getAllKeys', 'count'];
@@ -3071,12 +3168,13 @@ replaceTraps((oldTraps) => ({
 
 
 
-;// ../../node_modules/@firebase/app/dist/esm/index.esm2017.js
-/* unused harmony import specifier */ var index_esm2017_ComponentContainer;
-/* unused harmony import specifier */ var index_esm2017_setUserLogHandler;
+;// ./node_modules/@firebase/app/dist/esm/index.esm.js
+/* unused harmony import specifier */ var index_esm_ComponentContainer;
+/* unused harmony import specifier */ var index_esm_setUserLogHandler;
 /* unused harmony import specifier */ var setLogLevel$1;
-/* unused harmony import specifier */ var index_esm2017_isBrowser;
-/* unused harmony import specifier */ var index_esm2017_isWebWorker;
+/* unused harmony import specifier */ var index_esm_isBrowser;
+/* unused harmony import specifier */ var index_esm_isWebWorker;
+/* unused harmony import specifier */ var index_esm_getDefaultAppConfig;
 
 
 
@@ -3133,11 +3231,11 @@ class PlatformLoggerServiceImpl {
  */
 function isVersionServiceProvider(provider) {
     const component = provider.getComponent();
-    return (component === null || component === void 0 ? void 0 : component.type) === "VERSION" /* ComponentType.VERSION */;
+    return component?.type === "VERSION" /* ComponentType.VERSION */;
 }
 
 const name$q = "@firebase/app";
-const version$1 = "0.10.13";
+const version$1 = "0.16.2";
 
 /**
  * @license
@@ -3203,12 +3301,12 @@ const name$4 = "@firebase/storage-compat";
 
 const name$3 = "@firebase/firestore";
 
-const name$2 = "@firebase/vertexai-preview";
+const name$2 = "@firebase/ai";
 
 const name$1 = "@firebase/firestore-compat";
 
-const index_esm2017_name = "firebase";
-const version = "10.14.1";
+const index_esm_name = "firebase";
+const version = "12.19.0";
 
 /**
  * @license
@@ -3231,7 +3329,7 @@ const version = "10.14.1";
  *
  * @internal
  */
-const index_esm2017_DEFAULT_ENTRY_NAME = '[DEFAULT]';
+const index_esm_DEFAULT_ENTRY_NAME = '[DEFAULT]';
 const PLATFORM_LOG_STRING = {
     [name$q]: 'fire-core',
     [name$p]: 'fire-core-compat',
@@ -3259,8 +3357,8 @@ const PLATFORM_LOG_STRING = {
     [name$3]: 'fire-fst',
     [name$1]: 'fire-fst-compat',
     [name$2]: 'fire-vertex',
-    'fire-js': 'fire-js',
-    [index_esm2017_name]: 'fire-js-all'
+    'fire-js': 'fire-js', // Platform identifier for JS SDK.
+    [index_esm_name]: 'fire-js-all'
 };
 
 /**
@@ -3363,12 +3461,12 @@ function _getProvider(app, name) {
  *
  * @internal
  */
-function _removeServiceInstance(app, name, instanceIdentifier = index_esm2017_DEFAULT_ENTRY_NAME) {
+function _removeServiceInstance(app, name, instanceIdentifier = index_esm_DEFAULT_ENTRY_NAME) {
     _getProvider(app, name).clearInstance(instanceIdentifier);
 }
 /**
  *
- * @param obj - an object of type FirebaseApp or FirebaseOptions.
+ * @param obj - an object of type FirebaseApp, FirebaseOptions or FirebaseAppSettings.
  *
  * @returns true if the provide object is of type FirebaseApp.
  *
@@ -3379,6 +3477,23 @@ function _isFirebaseApp(obj) {
 }
 /**
  *
+ * @param obj - an object of type FirebaseApp, FirebaseOptions or FirebaseAppSettings.
+ *
+ * @returns true if the provided object is of type FirebaseServerAppImpl.
+ *
+ * @internal
+ */
+function _isFirebaseServerAppSettings(obj) {
+    if (_isFirebaseApp(obj)) {
+        return false;
+    }
+    return ('authIdToken' in obj ||
+        'appCheckToken' in obj ||
+        'releaseOnDeref' in obj ||
+        'automaticDataCollectionEnabled' in obj);
+}
+/**
+ *
  * @param obj - an object of type FirebaseApp.
  *
  * @returns true if the provided object is of type FirebaseServerAppImpl.
@@ -3386,6 +3501,9 @@ function _isFirebaseApp(obj) {
  * @internal
  */
 function _isFirebaseServerApp(obj) {
+    if (obj === null || obj === undefined) {
+        return false;
+    }
     return obj.settings !== undefined;
 }
 /**
@@ -3417,7 +3535,8 @@ const ERRORS = {
     ["no-app" /* AppError.NO_APP */]: "No Firebase App '{$appName}' has been created - " +
         'call initializeApp() first',
     ["bad-app-name" /* AppError.BAD_APP_NAME */]: "Illegal App name: '{$appName}'",
-    ["duplicate-app" /* AppError.DUPLICATE_APP */]: "Firebase App named '{$appName}' already exists with different options or config",
+    ["duplicate-app" /* AppError.DUPLICATE_APP */]: "Firebase App named '{$appName}' already exists with different {$mismatchedParam}." +
+        " Existing: '{$oldValue}'. New: '{$newValue}'.",
     ["app-deleted" /* AppError.APP_DELETED */]: "Firebase App named '{$appName}' already deleted",
     ["server-app-deleted" /* AppError.SERVER_APP_DELETED */]: 'Firebase Server App has been deleted',
     ["no-options" /* AppError.NO_OPTIONS */]: 'Need to provide options, when not being deployed to hosting via source.',
@@ -3452,8 +3571,8 @@ const ERROR_FACTORY = new ErrorFactory('app', 'Firebase', ERRORS);
 class FirebaseAppImpl {
     constructor(options, config, container) {
         this._isDeleted = false;
-        this._options = Object.assign({}, options);
-        this._config = Object.assign({}, config);
+        this._options = { ...options };
+        this._config = { ...config };
         this._name = config.name;
         this._automaticDataCollectionEnabled =
             config.automaticDataCollectionEnabled;
@@ -3516,12 +3635,33 @@ class FirebaseAppImpl {
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// Parse the token and check to see if the `exp` claim is in the future.
+// Reports an error to the console if the token or claim could not be parsed, or if `exp` is in
+// the past.
+function validateTokenTTL(base64Token, tokenName) {
+    const secondPart = base64Decode(base64Token.split('.')[1]);
+    if (secondPart === null) {
+        console.error(`FirebaseServerApp ${tokenName} is invalid: second part could not be parsed.`);
+        return;
+    }
+    const expClaim = JSON.parse(secondPart).exp;
+    if (expClaim === undefined) {
+        console.error(`FirebaseServerApp ${tokenName} is invalid: expiration claim could not be parsed`);
+        return;
+    }
+    const exp = JSON.parse(secondPart).exp * 1000;
+    const now = new Date().getTime();
+    const diff = exp - now;
+    if (diff <= 0) {
+        console.error(`FirebaseServerApp ${tokenName} is invalid: the token has expired.`);
+    }
+}
 class FirebaseServerAppImpl extends FirebaseAppImpl {
     constructor(options, serverConfig, name, container) {
         // Build configuration parameters for the FirebaseAppImpl base class.
         const automaticDataCollectionEnabled = serverConfig.automaticDataCollectionEnabled !== undefined
             ? serverConfig.automaticDataCollectionEnabled
-            : false;
+            : true;
         // Create the FirebaseAppSettings object for the FirebaseAppImp constructor.
         const config = {
             name,
@@ -3536,7 +3676,18 @@ class FirebaseServerAppImpl extends FirebaseAppImpl {
             super(appImpl.options, config, container);
         }
         // Now construct the data for the FirebaseServerAppImpl.
-        this._serverConfig = Object.assign({ automaticDataCollectionEnabled }, serverConfig);
+        this._serverConfig = {
+            automaticDataCollectionEnabled,
+            ...serverConfig
+        };
+        // Ensure that the current time is within the `authIdtoken` window of validity.
+        if (this._serverConfig.authIdToken) {
+            validateTokenTTL(this._serverConfig.authIdToken, 'authIdToken');
+        }
+        // Ensure that the current time is within the `appCheckToken` window of validity.
+        if (this._serverConfig.appCheckToken) {
+            validateTokenTTL(this._serverConfig.appCheckToken, 'appCheckToken');
+        }
         this._finalizationRegistry = null;
         if (typeof FinalizationRegistry !== 'undefined') {
             this._finalizationRegistry = new FinalizationRegistry(() => {
@@ -3624,7 +3775,11 @@ function initializeApp(_options, rawConfig = {}) {
         const name = rawConfig;
         rawConfig = { name };
     }
-    const config = Object.assign({ name: index_esm2017_DEFAULT_ENTRY_NAME, automaticDataCollectionEnabled: false }, rawConfig);
+    const config = {
+        name: index_esm_DEFAULT_ENTRY_NAME,
+        automaticDataCollectionEnabled: true,
+        ...rawConfig
+    };
     const name = config.name;
     if (typeof name !== 'string' || !name) {
         throw ERROR_FACTORY.create("bad-app-name" /* AppError.BAD_APP_NAME */, {
@@ -3638,12 +3793,24 @@ function initializeApp(_options, rawConfig = {}) {
     const existingApp = _apps.get(name);
     if (existingApp) {
         // return the existing app if options and config deep equal the ones in the existing app.
-        if (deepEqual(options, existingApp.options) &&
-            deepEqual(config, existingApp.config)) {
-            return existingApp;
+        if (!deepEqual(options, existingApp.options)) {
+            throw ERROR_FACTORY.create("duplicate-app" /* AppError.DUPLICATE_APP */, {
+                appName: name,
+                mismatchedParam: 'options',
+                oldValue: JSON.stringify(existingApp.options),
+                newValue: JSON.stringify(options)
+            });
+        }
+        else if (!deepEqual(config, existingApp.config)) {
+            throw ERROR_FACTORY.create("duplicate-app" /* AppError.DUPLICATE_APP */, {
+                appName: name,
+                mismatchedParam: 'config',
+                oldValue: JSON.stringify(existingApp.config),
+                newValue: JSON.stringify(config)
+            });
         }
         else {
-            throw ERROR_FACTORY.create("duplicate-app" /* AppError.DUPLICATE_APP */, { appName: name });
+            return existingApp;
         }
     }
     const container = new ComponentContainer(name);
@@ -3654,23 +3821,36 @@ function initializeApp(_options, rawConfig = {}) {
     _apps.set(name, newApp);
     return newApp;
 }
-function initializeServerApp(_options, _serverAppConfig) {
-    if (index_esm2017_isBrowser() && !index_esm2017_isWebWorker()) {
+function initializeServerApp(_options, _serverAppConfig = {}) {
+    if (index_esm_isBrowser() && !index_esm_isWebWorker()) {
         // FirebaseServerApp isn't designed to be run in browsers.
         throw ERROR_FACTORY.create("invalid-server-app-environment" /* AppError.INVALID_SERVER_APP_ENVIRONMENT */);
     }
-    if (_serverAppConfig.automaticDataCollectionEnabled === undefined) {
-        _serverAppConfig.automaticDataCollectionEnabled = false;
+    let firebaseOptions;
+    let serverAppSettings = _serverAppConfig || {};
+    if (_options) {
+        if (_isFirebaseApp(_options)) {
+            firebaseOptions = _options.options;
+        }
+        else if (_isFirebaseServerAppSettings(_options)) {
+            serverAppSettings = _options;
+        }
+        else {
+            firebaseOptions = _options;
+        }
     }
-    let appOptions;
-    if (_isFirebaseApp(_options)) {
-        appOptions = _options.options;
+    if (serverAppSettings.automaticDataCollectionEnabled === undefined) {
+        serverAppSettings.automaticDataCollectionEnabled = true;
     }
-    else {
-        appOptions = _options;
+    firebaseOptions || (firebaseOptions = index_esm_getDefaultAppConfig());
+    if (!firebaseOptions) {
+        throw ERROR_FACTORY.create("no-options" /* AppError.NO_OPTIONS */);
     }
     // Build an app name based on a hash of the configuration options.
-    const nameObj = Object.assign(Object.assign({}, _serverAppConfig), appOptions);
+    const nameObj = {
+        ...serverAppSettings,
+        ...firebaseOptions
+    };
     // However, Do not mangle the name based on releaseOnDeref, since it will vary between the
     // construction of FirebaseServerApp instances. For example, if the object is the request headers.
     if (nameObj.releaseOnDeref !== undefined) {
@@ -3679,7 +3859,7 @@ function initializeServerApp(_options, _serverAppConfig) {
     const hashCode = (s) => {
         return [...s].reduce((hash, c) => (Math.imul(31, hash) + c.charCodeAt(0)) | 0, 0);
     };
-    if (_serverAppConfig.releaseOnDeref !== undefined) {
+    if (serverAppSettings.releaseOnDeref !== undefined) {
         if (typeof FinalizationRegistry === 'undefined') {
             throw ERROR_FACTORY.create("finalization-registry-not-supported" /* AppError.FINALIZATION_REGISTRY_NOT_SUPPORTED */, {});
         }
@@ -3687,14 +3867,14 @@ function initializeServerApp(_options, _serverAppConfig) {
     const nameString = '' + hashCode(JSON.stringify(nameObj));
     const existingApp = _serverApps.get(nameString);
     if (existingApp) {
-        existingApp.incRefCount(_serverAppConfig.releaseOnDeref);
+        existingApp.incRefCount(serverAppSettings.releaseOnDeref);
         return existingApp;
     }
-    const container = new index_esm2017_ComponentContainer(nameString);
+    const container = new index_esm_ComponentContainer(nameString);
     for (const component of _components.values()) {
         container.addComponent(component);
     }
-    const newApp = new FirebaseServerAppImpl(appOptions, _serverAppConfig, nameString, container);
+    const newApp = new FirebaseServerAppImpl(firebaseOptions, serverAppSettings, nameString, container);
     _serverApps.set(nameString, newApp);
     return newApp;
 }
@@ -3727,9 +3907,9 @@ function initializeServerApp(_options, _serverAppConfig) {
  *
  * @public
  */
-function getApp(name = index_esm2017_DEFAULT_ENTRY_NAME) {
+function getApp(name = index_esm_DEFAULT_ENTRY_NAME) {
     const app = _apps.get(name);
-    if (!app && name === index_esm2017_DEFAULT_ENTRY_NAME && getDefaultAppConfig()) {
+    if (!app && name === index_esm_DEFAULT_ENTRY_NAME && getDefaultAppConfig()) {
         return initializeApp();
     }
     if (!app) {
@@ -3791,10 +3971,9 @@ async function deleteApp(app) {
  * @public
  */
 function registerVersion(libraryKeyOrName, version, variant) {
-    var _a;
     // TODO: We can use this check to whitelist strings when/if we set up
     // a good whitelist system.
-    let library = (_a = PLATFORM_LOG_STRING[libraryKeyOrName]) !== null && _a !== void 0 ? _a : libraryKeyOrName;
+    let library = PLATFORM_LOG_STRING[libraryKeyOrName] ?? libraryKeyOrName;
     if (variant) {
         library += `-${variant}`;
     }
@@ -3829,7 +4008,7 @@ function onLog(logCallback, options) {
     if (logCallback !== null && typeof logCallback !== 'function') {
         throw ERROR_FACTORY.create("invalid-log-argument" /* AppError.INVALID_LOG_ARGUMENT */);
     }
-    index_esm2017_setUserLogHandler(logCallback, options);
+    index_esm_setUserLogHandler(logCallback, options);
 }
 /**
  * Sets log level for all Firebase SDKs.
@@ -3840,7 +4019,7 @@ function onLog(logCallback, options) {
  *
  * @public
  */
-function index_esm2017_setLogLevel(logLevel) {
+function index_esm_setLogLevel(logLevel) {
     setLogLevel$1(logLevel);
 }
 
@@ -3910,7 +4089,7 @@ async function readHeartbeatsFromIndexedDB(app) {
         }
         else {
             const idbGetError = ERROR_FACTORY.create("idb-get" /* AppError.IDB_GET */, {
-                originalErrorMessage: e === null || e === void 0 ? void 0 : e.message
+                originalErrorMessage: e?.message
             });
             logger.warn(idbGetError.message);
         }
@@ -3930,7 +4109,7 @@ async function writeHeartbeatsToIndexedDB(app, heartbeatObject) {
         }
         else {
             const idbGetError = ERROR_FACTORY.create("idb-set" /* AppError.IDB_WRITE */, {
-                originalErrorMessage: e === null || e === void 0 ? void 0 : e.message
+                originalErrorMessage: e?.message
             });
             logger.warn(idbGetError.message);
         }
@@ -3957,8 +4136,7 @@ function computeKey(app) {
  * limitations under the License.
  */
 const MAX_HEADER_BYTES = 1024;
-// 30 days
-const STORED_HEARTBEAT_RETENTION_MAX_MILLIS = 30 * 24 * 60 * 60 * 1000;
+const MAX_NUM_STORED_HEARTBEATS = 30;
 class HeartbeatServiceImpl {
     constructor(container) {
         this.container = container;
@@ -3987,7 +4165,6 @@ class HeartbeatServiceImpl {
      * already logged, subsequent calls to this function in the same day will be ignored.
      */
     async triggerHeartbeat() {
-        var _a, _b;
         try {
             const platformLogger = this.container
                 .getProvider('platform-logger')
@@ -3996,10 +4173,10 @@ class HeartbeatServiceImpl {
             // service, not the browser user agent.
             const agent = platformLogger.getPlatformInfoString();
             const date = getUTCDateString();
-            if (((_a = this._heartbeatsCache) === null || _a === void 0 ? void 0 : _a.heartbeats) == null) {
+            if (this._heartbeatsCache?.heartbeats == null) {
                 this._heartbeatsCache = await this._heartbeatsCachePromise;
                 // If we failed to construct a heartbeats cache, then return immediately.
-                if (((_b = this._heartbeatsCache) === null || _b === void 0 ? void 0 : _b.heartbeats) == null) {
+                if (this._heartbeatsCache?.heartbeats == null) {
                     return;
                 }
             }
@@ -4012,14 +4189,13 @@ class HeartbeatServiceImpl {
             else {
                 // There is no entry for this date. Create one.
                 this._heartbeatsCache.heartbeats.push({ date, agent });
+                // If the number of stored heartbeats exceeds the maximum number of stored heartbeats, remove the heartbeat with the earliest date.
+                // Since this is executed each time a heartbeat is pushed, the limit can only be exceeded by one, so only one needs to be removed.
+                if (this._heartbeatsCache.heartbeats.length > MAX_NUM_STORED_HEARTBEATS) {
+                    const earliestHeartbeatIdx = getEarliestHeartbeatIdx(this._heartbeatsCache.heartbeats);
+                    this._heartbeatsCache.heartbeats.splice(earliestHeartbeatIdx, 1);
+                }
             }
-            // Remove entries older than 30 days.
-            this._heartbeatsCache.heartbeats =
-                this._heartbeatsCache.heartbeats.filter(singleDateHeartbeat => {
-                    const hbTimestamp = new Date(singleDateHeartbeat.date).valueOf();
-                    const now = Date.now();
-                    return now - hbTimestamp <= STORED_HEARTBEAT_RETENTION_MAX_MILLIS;
-                });
             return this._storage.overwrite(this._heartbeatsCache);
         }
         catch (e) {
@@ -4034,13 +4210,12 @@ class HeartbeatServiceImpl {
      * returns an empty string.
      */
     async getHeartbeatsHeader() {
-        var _a;
         try {
             if (this._heartbeatsCache === null) {
                 await this._heartbeatsCachePromise;
             }
             // If it's still null or the array is empty, there is no data to send.
-            if (((_a = this._heartbeatsCache) === null || _a === void 0 ? void 0 : _a.heartbeats) == null ||
+            if (this._heartbeatsCache?.heartbeats == null ||
                 this._heartbeatsCache.heartbeats.length === 0) {
                 return '';
             }
@@ -4141,7 +4316,7 @@ class HeartbeatStorageImpl {
         }
         else {
             const idbHeartbeatObject = await readHeartbeatsFromIndexedDB(this.app);
-            if (idbHeartbeatObject === null || idbHeartbeatObject === void 0 ? void 0 : idbHeartbeatObject.heartbeats) {
+            if (idbHeartbeatObject?.heartbeats) {
                 return idbHeartbeatObject;
             }
             else {
@@ -4151,7 +4326,6 @@ class HeartbeatStorageImpl {
     }
     // overwrite the storage with the provided heartbeats
     async overwrite(heartbeatsObject) {
-        var _a;
         const canUseIndexedDB = await this._canUseIndexedDBPromise;
         if (!canUseIndexedDB) {
             return;
@@ -4159,14 +4333,14 @@ class HeartbeatStorageImpl {
         else {
             const existingHeartbeatsObject = await this.read();
             return writeHeartbeatsToIndexedDB(this.app, {
-                lastSentHeartbeatDate: (_a = heartbeatsObject.lastSentHeartbeatDate) !== null && _a !== void 0 ? _a : existingHeartbeatsObject.lastSentHeartbeatDate,
+                lastSentHeartbeatDate: heartbeatsObject.lastSentHeartbeatDate ??
+                    existingHeartbeatsObject.lastSentHeartbeatDate,
                 heartbeats: heartbeatsObject.heartbeats
             });
         }
     }
     // add heartbeats
     async add(heartbeatsObject) {
-        var _a;
         const canUseIndexedDB = await this._canUseIndexedDBPromise;
         if (!canUseIndexedDB) {
             return;
@@ -4174,7 +4348,8 @@ class HeartbeatStorageImpl {
         else {
             const existingHeartbeatsObject = await this.read();
             return writeHeartbeatsToIndexedDB(this.app, {
-                lastSentHeartbeatDate: (_a = heartbeatsObject.lastSentHeartbeatDate) !== null && _a !== void 0 ? _a : existingHeartbeatsObject.lastSentHeartbeatDate,
+                lastSentHeartbeatDate: heartbeatsObject.lastSentHeartbeatDate ??
+                    existingHeartbeatsObject.lastSentHeartbeatDate,
                 heartbeats: [
                     ...existingHeartbeatsObject.heartbeats,
                     ...heartbeatsObject.heartbeats
@@ -4193,6 +4368,24 @@ function countBytes(heartbeatsCache) {
     return base64urlEncodeWithoutPadding(
     // heartbeatsCache wrapper properties
     JSON.stringify({ version: 2, heartbeats: heartbeatsCache })).length;
+}
+/**
+ * Returns the index of the heartbeat with the earliest date.
+ * If the heartbeats array is empty, -1 is returned.
+ */
+function getEarliestHeartbeatIdx(heartbeats) {
+    if (heartbeats.length === 0) {
+        return -1;
+    }
+    let earliestHeartbeatIdx = 0;
+    let earliestHeartbeatDate = heartbeats[0].date;
+    for (let i = 1; i < heartbeats.length; i++) {
+        if (heartbeats[i].date < earliestHeartbeatDate) {
+            earliestHeartbeatDate = heartbeats[i].date;
+            earliestHeartbeatIdx = i;
+        }
+    }
+    return earliestHeartbeatIdx;
 }
 
 /**
@@ -4216,8 +4409,8 @@ function registerCoreComponents(variant) {
     _registerComponent(new Component('heartbeat', container => new HeartbeatServiceImpl(container), "PRIVATE" /* ComponentType.PRIVATE */));
     // Register `app` package.
     registerVersion(name$q, version$1, variant);
-    // BUILD_TARGET will be replaced by values like esm5, esm2017, cjs5, etc during the compilation
-    registerVersion(name$q, version$1, 'esm2017');
+    // BUILD_TARGET will be replaced by values like esm, cjs, etc during the compilation
+    registerVersion(name$q, version$1, 'esm2020');
     // Register platform SDK identifier (no version).
     registerVersion('fire-js', '');
 }
@@ -4228,17 +4421,33 @@ function registerCoreComponents(variant) {
  * @remarks This package coordinates the communication between the different Firebase components
  * @packageDocumentation
  */
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 registerCoreComponents('');
 
 
-//# sourceMappingURL=index.esm2017.js.map
+//# sourceMappingURL=index.esm.js.map
 
-;// ../../node_modules/firebase/app/dist/esm/index.esm.js
+;// ./node_modules/firebase/app/dist/esm/index.esm.js
 
 
 
-var index_esm_name = "firebase";
-var index_esm_version = "10.14.1";
+var esm_index_esm_name = "firebase";
+var index_esm_version = "12.19.0";
 
 /**
  * @license
@@ -4256,418 +4465,14 @@ var index_esm_version = "10.14.1";
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-registerVersion(index_esm_name, index_esm_version, 'app');
+registerVersion(esm_index_esm_name, index_esm_version, 'app');
 //# sourceMappingURL=index.esm.js.map
 
-;// ../../node_modules/tslib/tslib.es6.mjs
-/******************************************************************************
-Copyright (c) Microsoft Corporation.
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
-AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
-OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-PERFORMANCE OF THIS SOFTWARE.
-***************************************************************************** */
-/* global Reflect, Promise, SuppressedError, Symbol, Iterator */
-
-var extendStatics = function(d, b) {
-  extendStatics = Object.setPrototypeOf ||
-      ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
-      function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
-  return extendStatics(d, b);
-};
-
-function __extends(d, b) {
-  if (typeof b !== "function" && b !== null)
-      throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
-  extendStatics(d, b);
-  function __() { this.constructor = d; }
-  d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
-}
-
-var __assign = function() {
-  __assign = Object.assign || function __assign(t) {
-      for (var s, i = 1, n = arguments.length; i < n; i++) {
-          s = arguments[i];
-          for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p)) t[p] = s[p];
-      }
-      return t;
-  }
-  return __assign.apply(this, arguments);
-}
-
-function __rest(s, e) {
-  var t = {};
-  for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
-      t[p] = s[p];
-  if (s != null && typeof Object.getOwnPropertySymbols === "function")
-      for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
-          if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
-              t[p[i]] = s[p[i]];
-      }
-  return t;
-}
-
-function __decorate(decorators, target, key, desc) {
-  var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
-  if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
-  else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
-  return c > 3 && r && Object.defineProperty(target, key, r), r;
-}
-
-function __param(paramIndex, decorator) {
-  return function (target, key) { decorator(target, key, paramIndex); }
-}
-
-function __esDecorate(ctor, descriptorIn, decorators, contextIn, initializers, extraInitializers) {
-  function accept(f) { if (f !== void 0 && typeof f !== "function") throw new TypeError("Function expected"); return f; }
-  var kind = contextIn.kind, key = kind === "getter" ? "get" : kind === "setter" ? "set" : "value";
-  var target = !descriptorIn && ctor ? contextIn["static"] ? ctor : ctor.prototype : null;
-  var descriptor = descriptorIn || (target ? Object.getOwnPropertyDescriptor(target, contextIn.name) : {});
-  var _, done = false;
-  for (var i = decorators.length - 1; i >= 0; i--) {
-      var context = {};
-      for (var p in contextIn) context[p] = p === "access" ? {} : contextIn[p];
-      for (var p in contextIn.access) context.access[p] = contextIn.access[p];
-      context.addInitializer = function (f) { if (done) throw new TypeError("Cannot add initializers after decoration has completed"); extraInitializers.push(accept(f || null)); };
-      var result = (0, decorators[i])(kind === "accessor" ? { get: descriptor.get, set: descriptor.set } : descriptor[key], context);
-      if (kind === "accessor") {
-          if (result === void 0) continue;
-          if (result === null || typeof result !== "object") throw new TypeError("Object expected");
-          if (_ = accept(result.get)) descriptor.get = _;
-          if (_ = accept(result.set)) descriptor.set = _;
-          if (_ = accept(result.init)) initializers.unshift(_);
-      }
-      else if (_ = accept(result)) {
-          if (kind === "field") initializers.unshift(_);
-          else descriptor[key] = _;
-      }
-  }
-  if (target) Object.defineProperty(target, contextIn.name, descriptor);
-  done = true;
-};
-
-function __runInitializers(thisArg, initializers, value) {
-  var useValue = arguments.length > 2;
-  for (var i = 0; i < initializers.length; i++) {
-      value = useValue ? initializers[i].call(thisArg, value) : initializers[i].call(thisArg);
-  }
-  return useValue ? value : void 0;
-};
-
-function __propKey(x) {
-  return typeof x === "symbol" ? x : "".concat(x);
-};
-
-function __setFunctionName(f, name, prefix) {
-  if (typeof name === "symbol") name = name.description ? "[".concat(name.description, "]") : "";
-  return Object.defineProperty(f, "name", { configurable: true, value: prefix ? "".concat(prefix, " ", name) : name });
-};
-
-function __metadata(metadataKey, metadataValue) {
-  if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(metadataKey, metadataValue);
-}
-
-function __awaiter(thisArg, _arguments, P, generator) {
-  function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-  return new (P || (P = Promise))(function (resolve, reject) {
-      function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-      function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-      function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-      step((generator = generator.apply(thisArg, _arguments || [])).next());
-  });
-}
-
-function __generator(thisArg, body) {
-  var _ = { label: 0, sent: function() { if (t[0] & 1) throw t[1]; return t[1]; }, trys: [], ops: [] }, f, y, t, g = Object.create((typeof Iterator === "function" ? Iterator : Object).prototype);
-  return g.next = verb(0), g["throw"] = verb(1), g["return"] = verb(2), typeof Symbol === "function" && (g[Symbol.iterator] = function() { return this; }), g;
-  function verb(n) { return function (v) { return step([n, v]); }; }
-  function step(op) {
-      if (f) throw new TypeError("Generator is already executing.");
-      while (g && (g = 0, op[0] && (_ = 0)), _) try {
-          if (f = 1, y && (t = op[0] & 2 ? y["return"] : op[0] ? y["throw"] || ((t = y["return"]) && t.call(y), 0) : y.next) && !(t = t.call(y, op[1])).done) return t;
-          if (y = 0, t) op = [op[0] & 2, t.value];
-          switch (op[0]) {
-              case 0: case 1: t = op; break;
-              case 4: _.label++; return { value: op[1], done: false };
-              case 5: _.label++; y = op[1]; op = [0]; continue;
-              case 7: op = _.ops.pop(); _.trys.pop(); continue;
-              default:
-                  if (!(t = _.trys, t = t.length > 0 && t[t.length - 1]) && (op[0] === 6 || op[0] === 2)) { _ = 0; continue; }
-                  if (op[0] === 3 && (!t || (op[1] > t[0] && op[1] < t[3]))) { _.label = op[1]; break; }
-                  if (op[0] === 6 && _.label < t[1]) { _.label = t[1]; t = op; break; }
-                  if (t && _.label < t[2]) { _.label = t[2]; _.ops.push(op); break; }
-                  if (t[2]) _.ops.pop();
-                  _.trys.pop(); continue;
-          }
-          op = body.call(thisArg, _);
-      } catch (e) { op = [6, e]; y = 0; } finally { f = t = 0; }
-      if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
-  }
-}
-
-var __createBinding = Object.create ? (function(o, m, k, k2) {
-  if (k2 === undefined) k2 = k;
-  var desc = Object.getOwnPropertyDescriptor(m, k);
-  if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-  }
-  Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-  if (k2 === undefined) k2 = k;
-  o[k2] = m[k];
-});
-
-function __exportStar(m, o) {
-  for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(o, p)) __createBinding(o, m, p);
-}
-
-function __values(o) {
-  var s = typeof Symbol === "function" && Symbol.iterator, m = s && o[s], i = 0;
-  if (m) return m.call(o);
-  if (o && typeof o.length === "number") return {
-      next: function () {
-          if (o && i >= o.length) o = void 0;
-          return { value: o && o[i++], done: !o };
-      }
-  };
-  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
-}
-
-function __read(o, n) {
-  var m = typeof Symbol === "function" && o[Symbol.iterator];
-  if (!m) return o;
-  var i = m.call(o), r, ar = [], e;
-  try {
-      while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
-  }
-  catch (error) { e = { error: error }; }
-  finally {
-      try {
-          if (r && !r.done && (m = i["return"])) m.call(i);
-      }
-      finally { if (e) throw e.error; }
-  }
-  return ar;
-}
-
-/** @deprecated */
-function __spread() {
-  for (var ar = [], i = 0; i < arguments.length; i++)
-      ar = ar.concat(__read(arguments[i]));
-  return ar;
-}
-
-/** @deprecated */
-function __spreadArrays() {
-  for (var s = 0, i = 0, il = arguments.length; i < il; i++) s += arguments[i].length;
-  for (var r = Array(s), k = 0, i = 0; i < il; i++)
-      for (var a = arguments[i], j = 0, jl = a.length; j < jl; j++, k++)
-          r[k] = a[j];
-  return r;
-}
-
-function __spreadArray(to, from, pack) {
-  if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
-      if (ar || !(i in from)) {
-          if (!ar) ar = Array.prototype.slice.call(from, 0, i);
-          ar[i] = from[i];
-      }
-  }
-  return to.concat(ar || Array.prototype.slice.call(from));
-}
-
-function __await(v) {
-  return this instanceof __await ? (this.v = v, this) : new __await(v);
-}
-
-function __asyncGenerator(thisArg, _arguments, generator) {
-  if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
-  var g = generator.apply(thisArg, _arguments || []), i, q = [];
-  return i = Object.create((typeof AsyncIterator === "function" ? AsyncIterator : Object).prototype), verb("next"), verb("throw"), verb("return", awaitReturn), i[Symbol.asyncIterator] = function () { return this; }, i;
-  function awaitReturn(f) { return function (v) { return Promise.resolve(v).then(f, reject); }; }
-  function verb(n, f) { if (g[n]) { i[n] = function (v) { return new Promise(function (a, b) { q.push([n, v, a, b]) > 1 || resume(n, v); }); }; if (f) i[n] = f(i[n]); } }
-  function resume(n, v) { try { step(g[n](v)); } catch (e) { settle(q[0][3], e); } }
-  function step(r) { r.value instanceof __await ? Promise.resolve(r.value.v).then(fulfill, reject) : settle(q[0][2], r); }
-  function fulfill(value) { resume("next", value); }
-  function reject(value) { resume("throw", value); }
-  function settle(f, v) { if (f(v), q.shift(), q.length) resume(q[0][0], q[0][1]); }
-}
-
-function __asyncDelegator(o) {
-  var i, p;
-  return i = {}, verb("next"), verb("throw", function (e) { throw e; }), verb("return"), i[Symbol.iterator] = function () { return this; }, i;
-  function verb(n, f) { i[n] = o[n] ? function (v) { return (p = !p) ? { value: __await(o[n](v)), done: false } : f ? f(v) : v; } : f; }
-}
-
-function __asyncValues(o) {
-  if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
-  var m = o[Symbol.asyncIterator], i;
-  return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
-  function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
-  function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
-}
-
-function __makeTemplateObject(cooked, raw) {
-  if (Object.defineProperty) { Object.defineProperty(cooked, "raw", { value: raw }); } else { cooked.raw = raw; }
-  return cooked;
-};
-
-var __setModuleDefault = Object.create ? (function(o, v) {
-  Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-  o["default"] = v;
-};
-
-var ownKeys = function(o) {
-  ownKeys = Object.getOwnPropertyNames || function (o) {
-    var ar = [];
-    for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-    return ar;
-  };
-  return ownKeys(o);
-};
-
-function __importStar(mod) {
-  if (mod && mod.__esModule) return mod;
-  var result = {};
-  if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-  __setModuleDefault(result, mod);
-  return result;
-}
-
-function __importDefault(mod) {
-  return (mod && mod.__esModule) ? mod : { default: mod };
-}
-
-function __classPrivateFieldGet(receiver, state, kind, f) {
-  if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
-}
-
-function __classPrivateFieldSet(receiver, state, value, kind, f) {
-  if (kind === "m") throw new TypeError("Private method is not writable");
-  if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return (kind === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value)), value;
-}
-
-function __classPrivateFieldIn(state, receiver) {
-  if (receiver === null || (typeof receiver !== "object" && typeof receiver !== "function")) throw new TypeError("Cannot use 'in' operator on non-object");
-  return typeof state === "function" ? receiver === state : state.has(receiver);
-}
-
-function __addDisposableResource(env, value, async) {
-  if (value !== null && value !== void 0) {
-    if (typeof value !== "object" && typeof value !== "function") throw new TypeError("Object expected.");
-    var dispose, inner;
-    if (async) {
-      if (!Symbol.asyncDispose) throw new TypeError("Symbol.asyncDispose is not defined.");
-      dispose = value[Symbol.asyncDispose];
-    }
-    if (dispose === void 0) {
-      if (!Symbol.dispose) throw new TypeError("Symbol.dispose is not defined.");
-      dispose = value[Symbol.dispose];
-      if (async) inner = dispose;
-    }
-    if (typeof dispose !== "function") throw new TypeError("Object not disposable.");
-    if (inner) dispose = function() { try { inner.call(this); } catch (e) { return Promise.reject(e); } };
-    env.stack.push({ value: value, dispose: dispose, async: async });
-  }
-  else if (async) {
-    env.stack.push({ async: true });
-  }
-  return value;
-}
-
-var _SuppressedError = typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
-  var e = new Error(message);
-  return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
-};
-
-function __disposeResources(env) {
-  function fail(e) {
-    env.error = env.hasError ? new _SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
-    env.hasError = true;
-  }
-  var r, s = 0;
-  function next() {
-    while (r = env.stack.pop()) {
-      try {
-        if (!r.async && s === 1) return s = 0, env.stack.push(r), Promise.resolve().then(next);
-        if (r.dispose) {
-          var result = r.dispose.call(r.value);
-          if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) { fail(e); return next(); });
-        }
-        else s |= 1;
-      }
-      catch (e) {
-        fail(e);
-      }
-    }
-    if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
-    if (env.hasError) throw env.error;
-  }
-  return next();
-}
-
-function __rewriteRelativeImportExtension(path, preserveJsx) {
-  if (typeof path === "string" && /^\.\.?\//.test(path)) {
-      return path.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function (m, tsx, d, ext, cm) {
-          return tsx ? preserveJsx ? ".jsx" : ".js" : d && (!ext || !cm) ? m : (d + ext + "." + cm.toLowerCase() + "js");
-      });
-  }
-  return path;
-}
-
-/* harmony default export */ const tslib_es6 = ({
-  __extends,
-  __assign,
-  __rest,
-  __decorate,
-  __param,
-  __esDecorate,
-  __runInitializers,
-  __propKey,
-  __setFunctionName,
-  __metadata,
-  __awaiter,
-  __generator,
-  __createBinding,
-  __exportStar,
-  __values,
-  __read,
-  __spread,
-  __spreadArrays,
-  __spreadArray,
-  __await,
-  __asyncGenerator,
-  __asyncDelegator,
-  __asyncValues,
-  __makeTemplateObject,
-  __importStar,
-  __importDefault,
-  __classPrivateFieldGet,
-  __classPrivateFieldSet,
-  __classPrivateFieldIn,
-  __addDisposableResource,
-  __disposeResources,
-  __rewriteRelativeImportExtension,
-});
-
-;// ../../node_modules/firebase/node_modules/@firebase/auth/dist/esm2017/index-68602d24.js
-/* unused harmony import specifier */ var index_68602d24_isFirebaseServerApp;
-/* unused harmony import specifier */ var index_68602d24_getModularInstance;
-/* unused harmony import specifier */ var index_68602d24_getUA;
-/* unused harmony import specifier */ var index_68602d24_querystring;
-
+;// ./node_modules/@firebase/auth/dist/esm/index-4NFEPWkC.js
+/* unused harmony import specifier */ var index_4NFEPWkC_isFirebaseServerApp;
+/* unused harmony import specifier */ var index_4NFEPWkC_getModularInstance;
+/* unused harmony import specifier */ var index_4NFEPWkC_getUA;
+/* unused harmony import specifier */ var index_4NFEPWkC_querystring;
 
 
 
@@ -4944,7 +4749,9 @@ function _debugErrorMap() {
         ["invalid-req-type" /* AuthErrorCode.INVALID_REQ_TYPE */]: 'Invalid request parameters.',
         ["invalid-recaptcha-version" /* AuthErrorCode.INVALID_RECAPTCHA_VERSION */]: 'The reCAPTCHA version is invalid when sending request to the backend.',
         ["unsupported-password-policy-schema-version" /* AuthErrorCode.UNSUPPORTED_PASSWORD_POLICY_SCHEMA_VERSION */]: 'The password policy received from the backend uses a schema version that is not supported by this version of the Firebase SDK.',
-        ["password-does-not-meet-requirements" /* AuthErrorCode.PASSWORD_DOES_NOT_MEET_REQUIREMENTS */]: 'The password does not meet the requirements.'
+        ["password-does-not-meet-requirements" /* AuthErrorCode.PASSWORD_DOES_NOT_MEET_REQUIREMENTS */]: 'The password does not meet the requirements.',
+        ["invalid-hosting-link-domain" /* AuthErrorCode.INVALID_HOSTING_LINK_DOMAIN */]: 'The provided Hosting link domain is not configured in Firebase Hosting or is not owned by ' +
+            'the current project. This cannot be a default Hosting domain (`web.app` or `firebaseapp.com`).'
     };
 }
 function _prodErrorMap() {
@@ -5047,6 +4854,7 @@ const AUTH_ERROR_CODES_MAP_DO_NOT_USE_INTERNALLY = {
     MISSING_MFA_INFO: 'auth/missing-multi-factor-info',
     MISSING_MFA_SESSION: 'auth/missing-multi-factor-session',
     MISSING_PHONE_NUMBER: 'auth/missing-phone-number',
+    MISSING_PASSWORD: 'auth/missing-password',
     MISSING_SESSION_INFO: 'auth/missing-verification-id',
     MODULE_DESTROYED: 'auth/app-deleted',
     NEED_CONFIRMATION: 'auth/account-exists-with-different-credential',
@@ -5089,7 +4897,8 @@ const AUTH_ERROR_CODES_MAP_DO_NOT_USE_INTERNALLY = {
     MISSING_CLIENT_TYPE: 'auth/missing-client-type',
     MISSING_RECAPTCHA_VERSION: 'auth/missing-recaptcha-version',
     INVALID_RECAPTCHA_VERSION: 'auth/invalid-recaptcha-version',
-    INVALID_REQ_TYPE: 'auth/invalid-req-type'
+    INVALID_REQ_TYPE: 'auth/invalid-req-type',
+    INVALID_HOSTING_LINK_DOMAIN: 'auth/invalid-hosting-link-domain'
 };
 
 /**
@@ -5143,7 +4952,10 @@ function _createError(authOrCode, ...rest) {
     return createErrorInternal(authOrCode, ...rest);
 }
 function _errorWithCustomMessage(auth, code, message) {
-    const errorMap = Object.assign(Object.assign({}, prodErrorMap()), { [code]: message });
+    const errorMap = {
+        ...prodErrorMap(),
+        [code]: message
+    };
     const factory = new ErrorFactory('auth', 'Firebase', errorMap);
     return factory.create(code, {
         appName: auth.name
@@ -5224,15 +5036,13 @@ function debugAssert(assertion, message) {
  * limitations under the License.
  */
 function _getCurrentUrl() {
-    var _a;
-    return (typeof self !== 'undefined' && ((_a = self.location) === null || _a === void 0 ? void 0 : _a.href)) || '';
+    return (typeof self !== 'undefined' && self.location?.href) || '';
 }
 function _isHttpOrHttps() {
     return _getCurrentScheme() === 'http:' || _getCurrentScheme() === 'https:';
 }
 function _getCurrentScheme() {
-    var _a;
-    return (typeof self !== 'undefined' && ((_a = self.location) === null || _a === void 0 ? void 0 : _a.protocol)) || null;
+    return (typeof self !== 'undefined' && self.location?.protocol) || null;
 }
 
 /**
@@ -5535,10 +5345,21 @@ const SERVER_ERROR_MAP = {
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+const CookieAuthProxiedEndpoints = [
+    "/v1/accounts:signInWithCustomToken" /* Endpoint.SIGN_IN_WITH_CUSTOM_TOKEN */,
+    "/v1/accounts:signInWithEmailLink" /* Endpoint.SIGN_IN_WITH_EMAIL_LINK */,
+    "/v1/accounts:signInWithIdp" /* Endpoint.SIGN_IN_WITH_IDP */,
+    "/v1/accounts:signInWithPassword" /* Endpoint.SIGN_IN_WITH_PASSWORD */,
+    "/v1/accounts:signInWithPhoneNumber" /* Endpoint.SIGN_IN_WITH_PHONE_NUMBER */,
+    "/v1/token" /* Endpoint.TOKEN */
+];
 const DEFAULT_API_TIMEOUT_MS = new Delay(30000, 60000);
 function _addTidIfNecessary(auth, request) {
     if (auth.tenantId && !request.tenantId) {
-        return Object.assign(Object.assign({}, request), { tenantId: auth.tenantId });
+        return {
+            ...request,
+            tenantId: auth.tenantId
+        };
     }
     return request;
 }
@@ -5556,27 +5377,36 @@ async function _performApiRequest(auth, method, path, request, customErrorMap = 
                 };
             }
         }
-        const query = querystring(Object.assign({ key: auth.config.apiKey }, params)).slice(1);
+        const query = querystring({
+            ...params,
+            key: auth.config.apiKey
+        }).slice(1);
         const headers = await auth._getAdditionalHeaders();
         headers["Content-Type" /* HttpHeader.CONTENT_TYPE */] = 'application/json';
         if (auth.languageCode) {
             headers["X-Firebase-Locale" /* HttpHeader.X_FIREBASE_LOCALE */] = auth.languageCode;
         }
-        const fetchArgs = Object.assign({ method,
-            headers }, body);
+        const fetchArgs = {
+            method,
+            headers,
+            ...body
+        };
         /* Security-conscious server-side frameworks tend to have built in mitigations for referrer
            problems". See the Cloudflare GitHub issue #487: Error: The 'referrerPolicy' field on
            'RequestInitializerDict' is not implemented."
            https://github.com/cloudflare/next-on-pages/issues/487 */
         if (!isCloudflareWorker()) {
-            fetchArgs.referrerPolicy = 'no-referrer';
+            fetchArgs.referrerPolicy = 'strict-origin-when-cross-origin';
         }
-        return FetchProvider.fetch()(_getFinalTarget(auth, auth.config.apiHost, path, query), fetchArgs);
+        if (auth.emulatorConfig && isCloudWorkstation(auth.emulatorConfig.host)) {
+            fetchArgs.credentials = 'include';
+        }
+        return FetchProvider.fetch()(await _getFinalTarget(auth, auth.config.apiHost, path, query), fetchArgs);
     });
 }
 async function _performFetchWithErrorHandling(auth, customErrorMap, fetchFn) {
     auth._canInitEmulator = false;
-    const errorMap = Object.assign(Object.assign({}, SERVER_ERROR_MAP), customErrorMap);
+    const errorMap = { ...SERVER_ERROR_MAP, ...customErrorMap };
     try {
         const networkTimeout = new NetworkTimeout(auth);
         const response = await Promise.race([
@@ -5628,7 +5458,7 @@ async function _performFetchWithErrorHandling(auth, customErrorMap, fetchFn) {
     }
 }
 async function _performSignInRequest(auth, method, path, request, customErrorMap = {}) {
-    const serverResponse = (await _performApiRequest(auth, method, path, request, customErrorMap));
+    const serverResponse = await _performApiRequest(auth, method, path, request, customErrorMap);
     if ('mfaPendingCredential' in serverResponse) {
         _fail(auth, "multi-factor-auth-required" /* AuthErrorCode.MFA_REQUIRED */, {
             _serverResponse: serverResponse
@@ -5636,12 +5466,25 @@ async function _performSignInRequest(auth, method, path, request, customErrorMap
     }
     return serverResponse;
 }
-function _getFinalTarget(auth, host, path, query) {
+async function _getFinalTarget(auth, host, path, query) {
     const base = `${host}${path}?${query}`;
-    if (!auth.config.emulator) {
-        return `${auth.config.apiScheme}://${base}`;
+    const authInternal = auth;
+    const finalTarget = authInternal.config.emulator
+        ? _emulatorUrl(auth.config, base)
+        : `${auth.config.apiScheme}://${base}`;
+    // Cookie auth works by MiTMing the signIn and token endpoints from the developer's backend,
+    // saving the idToken and refreshToken into cookies, and then redacting the refreshToken
+    // from the response
+    if (CookieAuthProxiedEndpoints.includes(path)) {
+        // Persistence manager is async, we need to await it. We can't just wait for auth initialized
+        // here since auth initialization calls this function.
+        await authInternal._persistenceManagerAvailable;
+        if (authInternal._getPersistenceType() === "COOKIE" /* PersistenceType.COOKIE */) {
+            const cookiePersistence = authInternal._getPersistence();
+            return cookiePersistence._getFinalTarget(finalTarget).toString();
+        }
     }
-    return _emulatorUrl(auth.config, base);
+    return finalTarget;
 }
 function _parseEnforcementState(enforcementStateStr) {
     switch (enforcementStateStr) {
@@ -5656,6 +5499,9 @@ function _parseEnforcementState(enforcementStateStr) {
     }
 }
 class NetworkTimeout {
+    clearNetworkTimeout() {
+        clearTimeout(this.timer);
+    }
     constructor(auth) {
         this.auth = auth;
         // Node timers and browser timers are fundamentally incompatible, but we
@@ -5667,9 +5513,6 @@ class NetworkTimeout {
                 return reject(_createError(this.auth, "network-request-failed" /* AuthErrorCode.NETWORK_REQUEST_FAILED */));
             }, DEFAULT_API_TIMEOUT_MS.get());
         });
-    }
-    clearNetworkTimeout() {
-        clearTimeout(this.timer);
     }
 }
 function _makeTaggedError(auth, code, response) {
@@ -5758,6 +5601,16 @@ class RecaptchaConfig {
         return (this.getProviderEnforcementState(providerStr) ===
             "ENFORCE" /* EnforcementState.ENFORCE */ ||
             this.getProviderEnforcementState(providerStr) === "AUDIT" /* EnforcementState.AUDIT */);
+    }
+    /**
+     * Returns true if reCAPTCHA Enterprise protection is enabled in at least one provider, otherwise
+     * returns false.
+     *
+     * @returns Whether or not reCAPTCHA Enterprise protection is enabled for at least one provider.
+     */
+    isAnyProviderEnabled() {
+        return (this.isProviderEnabled("EMAIL_PASSWORD_PROVIDER" /* RecaptchaAuthProvider.EMAIL_PASSWORD_PROVIDER */) ||
+            this.isProviderEnabled("PHONE_PROVIDER" /* RecaptchaAuthProvider.PHONE_PROVIDER */));
     }
 }
 
@@ -5874,7 +5727,7 @@ function utcTimestampToDateString(utcTimestamp) {
  * @public
  */
 function getIdToken(user, forceRefresh = false) {
-    return index_68602d24_getModularInstance(user).getIdToken(forceRefresh);
+    return index_4NFEPWkC_getModularInstance(user).getIdToken(forceRefresh);
 }
 /**
  * Returns a deserialized JSON Web Token (JWT) used to identify the user to a Firebase service.
@@ -5894,7 +5747,7 @@ async function getIdTokenResult(user, forceRefresh = false) {
     const claims = _parseToken(token);
     _assert(claims && claims.exp && claims.auth_time && claims.iat, userInternal.auth, "internal-error" /* AuthErrorCode.INTERNAL_ERROR */);
     const firebase = typeof claims.firebase === 'object' ? claims.firebase : undefined;
-    const signInProvider = firebase === null || firebase === void 0 ? void 0 : firebase['sign_in_provider'];
+    const signInProvider = firebase?.['sign_in_provider'];
     return {
         claims,
         token,
@@ -5902,7 +5755,7 @@ async function getIdTokenResult(user, forceRefresh = false) {
         issuedAtTime: utcTimestampToDateString(secondsStringToMilliseconds(claims.iat)),
         expirationTime: utcTimestampToDateString(secondsStringToMilliseconds(claims.exp)),
         signInProvider: signInProvider || null,
-        signInSecondFactor: (firebase === null || firebase === void 0 ? void 0 : firebase['sign_in_second_factor']) || null
+        signInSecondFactor: firebase?.['sign_in_second_factor'] || null
     };
 }
 function secondsStringToMilliseconds(seconds) {
@@ -5925,7 +5778,7 @@ function _parseToken(token) {
         return JSON.parse(decoded);
     }
     catch (e) {
-        _logError('Caught error parsing JWT payload as JSON', e === null || e === void 0 ? void 0 : e.toString());
+        _logError('Caught error parsing JWT payload as JSON', e?.toString());
         return null;
     }
 }
@@ -6021,7 +5874,6 @@ class ProactiveRefresh {
         }
     }
     getInterval(wasError) {
-        var _a;
         if (wasError) {
             const interval = this.errorBackoff;
             this.errorBackoff = Math.min(this.errorBackoff * 2, 960000 /* Duration.RETRY_BACKOFF_MAX */);
@@ -6030,7 +5882,7 @@ class ProactiveRefresh {
         else {
             // Reset the error backoff
             this.errorBackoff = 30000 /* Duration.RETRY_BACKOFF_MIN */;
-            const expTime = (_a = this.user.stsTokenManager.expirationTime) !== null && _a !== void 0 ? _a : 0;
+            const expTime = this.user.stsTokenManager.expirationTime ?? 0;
             const interval = expTime - Date.now() - 300000 /* Duration.OFFSET */;
             return Math.max(0, interval);
         }
@@ -6051,7 +5903,7 @@ class ProactiveRefresh {
         }
         catch (e) {
             // Only retry on network errors
-            if ((e === null || e === void 0 ? void 0 : e.code) ===
+            if (e?.code ===
                 `auth/${"network-request-failed" /* AuthErrorCode.NETWORK_REQUEST_FAILED */}`) {
                 this.schedule(/* wasError */ true);
             }
@@ -6117,14 +5969,13 @@ class UserMetadata {
  * limitations under the License.
  */
 async function _reloadWithoutSaving(user) {
-    var _a;
     const auth = user.auth;
     const idToken = await user.getIdToken();
     const response = await _logoutIfInvalidated(user, getAccountInfo(auth, { idToken }));
-    _assert(response === null || response === void 0 ? void 0 : response.users.length, auth, "internal-error" /* AuthErrorCode.INTERNAL_ERROR */);
+    _assert(response?.users.length, auth, "internal-error" /* AuthErrorCode.INTERNAL_ERROR */);
     const coreAccount = response.users[0];
     user._notifyReloadListener(coreAccount);
-    const newProviderData = ((_a = coreAccount.providerUserInfo) === null || _a === void 0 ? void 0 : _a.length)
+    const newProviderData = coreAccount.providerUserInfo?.length
         ? extractProviderData(coreAccount.providerUserInfo)
         : [];
     const providerData = mergeProviderData(user.providerData, newProviderData);
@@ -6134,7 +5985,7 @@ async function _reloadWithoutSaving(user) {
     // On the other hand, if it was not anonymous before, it should never be
     // considered anonymous now.
     const oldIsAnonymous = user.isAnonymous;
-    const newIsAnonymous = !(user.email && coreAccount.passwordHash) && !(providerData === null || providerData === void 0 ? void 0 : providerData.length);
+    const newIsAnonymous = !(user.email && coreAccount.passwordHash) && !providerData?.length;
     const isAnonymous = !oldIsAnonymous ? false : newIsAnonymous;
     const updates = {
         uid: coreAccount.localId,
@@ -6171,8 +6022,7 @@ function mergeProviderData(original, newData) {
     return [...deduped, ...newData];
 }
 function extractProviderData(providers) {
-    return providers.map((_a) => {
-        var { providerId } = _a, provider = __rest(_a, ["providerId"]);
+    return providers.map(({ providerId, ...provider }) => {
         return {
             providerId,
             uid: provider.rawId || '',
@@ -6200,6 +6050,7 @@ function extractProviderData(providers) {
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* eslint-disable camelcase */
 async function requestStsToken(auth, refreshToken) {
     const response = await _performFetchWithErrorHandling(auth, {}, async () => {
         const body = querystring({
@@ -6207,14 +6058,19 @@ async function requestStsToken(auth, refreshToken) {
             'refresh_token': refreshToken
         }).slice(1);
         const { tokenApiHost, apiKey } = auth.config;
-        const url = _getFinalTarget(auth, tokenApiHost, "/v1/token" /* Endpoint.TOKEN */, `key=${apiKey}`);
+        const url = await _getFinalTarget(auth, tokenApiHost, "/v1/token" /* Endpoint.TOKEN */, `key=${apiKey}`);
         const headers = await auth._getAdditionalHeaders();
         headers["Content-Type" /* HttpHeader.CONTENT_TYPE */] = 'application/x-www-form-urlencoded';
-        return FetchProvider.fetch()(url, {
+        const options = {
             method: "POST" /* HttpMethod.POST */,
             headers,
             body
-        });
+        };
+        if (auth.emulatorConfig &&
+            isCloudWorkstation(auth.emulatorConfig.host)) {
+            options.credentials = 'include';
+        }
+        return FetchProvider.fetch()(url, options);
     });
     // The response comes back in snake_case. Convert to camel:
     return {
@@ -6359,8 +6215,7 @@ function assertStringOrUndefined(assertion, appName) {
     _assert(typeof assertion === 'string' || typeof assertion === 'undefined', "internal-error" /* AuthErrorCode.INTERNAL_ERROR */, { appName });
 }
 class UserImpl {
-    constructor(_a) {
-        var { uid, auth, stsTokenManager } = _a, opt = __rest(_a, ["uid", "auth", "stsTokenManager"]);
+    constructor({ uid, auth, stsTokenManager, ...opt }) {
         // For the user object, provider is always Firebase.
         this.providerId = "firebase" /* ProviderId.FIREBASE */;
         this.proactiveRefresh = new ProactiveRefresh(this);
@@ -6408,12 +6263,16 @@ class UserImpl {
         this.phoneNumber = user.phoneNumber;
         this.isAnonymous = user.isAnonymous;
         this.tenantId = user.tenantId;
-        this.providerData = user.providerData.map(userInfo => (Object.assign({}, userInfo)));
+        this.providerData = user.providerData.map(userInfo => ({ ...userInfo }));
         this.metadata._copy(user.metadata);
         this.stsTokenManager._assign(user.stsTokenManager);
     }
     _clone(auth) {
-        const newUser = new UserImpl(Object.assign(Object.assign({}, this), { auth, stsTokenManager: this.stsTokenManager._clone() }));
+        const newUser = new UserImpl({
+            ...this,
+            auth,
+            stsTokenManager: this.stsTokenManager._clone()
+        });
         newUser.metadata._copy(this.metadata);
         return newUser;
     }
@@ -6468,26 +6327,40 @@ class UserImpl {
         return this.auth.signOut();
     }
     toJSON() {
-        return Object.assign(Object.assign({ uid: this.uid, email: this.email || undefined, emailVerified: this.emailVerified, displayName: this.displayName || undefined, isAnonymous: this.isAnonymous, photoURL: this.photoURL || undefined, phoneNumber: this.phoneNumber || undefined, tenantId: this.tenantId || undefined, providerData: this.providerData.map(userInfo => (Object.assign({}, userInfo))), stsTokenManager: this.stsTokenManager.toJSON(), 
+        return {
+            uid: this.uid,
+            email: this.email || undefined,
+            emailVerified: this.emailVerified,
+            displayName: this.displayName || undefined,
+            isAnonymous: this.isAnonymous,
+            photoURL: this.photoURL || undefined,
+            phoneNumber: this.phoneNumber || undefined,
+            tenantId: this.tenantId || undefined,
+            providerData: this.providerData.map(userInfo => ({ ...userInfo })),
+            stsTokenManager: this.stsTokenManager.toJSON(),
             // Redirect event ID must be maintained in case there is a pending
             // redirect event.
-            _redirectEventId: this._redirectEventId }, this.metadata.toJSON()), { 
+            _redirectEventId: this._redirectEventId,
+            ...this.metadata.toJSON(),
             // Required for compatibility with the legacy SDK (go/firebase-auth-sdk-persistence-parsing):
-            apiKey: this.auth.config.apiKey, appName: this.auth.name });
+            apiKey: this.auth.config.apiKey,
+            appName: this.auth.name
+            // Missing authDomain will be tolerated by the legacy SDK.
+            // stsTokenManager.apiKey isn't actually required (despite the legacy SDK persisting it).
+        };
     }
     get refreshToken() {
         return this.stsTokenManager.refreshToken || '';
     }
     static _fromJSON(auth, object) {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
-        const displayName = (_a = object.displayName) !== null && _a !== void 0 ? _a : undefined;
-        const email = (_b = object.email) !== null && _b !== void 0 ? _b : undefined;
-        const phoneNumber = (_c = object.phoneNumber) !== null && _c !== void 0 ? _c : undefined;
-        const photoURL = (_d = object.photoURL) !== null && _d !== void 0 ? _d : undefined;
-        const tenantId = (_e = object.tenantId) !== null && _e !== void 0 ? _e : undefined;
-        const _redirectEventId = (_f = object._redirectEventId) !== null && _f !== void 0 ? _f : undefined;
-        const createdAt = (_g = object.createdAt) !== null && _g !== void 0 ? _g : undefined;
-        const lastLoginAt = (_h = object.lastLoginAt) !== null && _h !== void 0 ? _h : undefined;
+        const displayName = object.displayName ?? undefined;
+        const email = object.email ?? undefined;
+        const phoneNumber = object.phoneNumber ?? undefined;
+        const photoURL = object.photoURL ?? undefined;
+        const tenantId = object.tenantId ?? undefined;
+        const _redirectEventId = object._redirectEventId ?? undefined;
+        const createdAt = object.createdAt ?? undefined;
+        const lastLoginAt = object.lastLoginAt ?? undefined;
         const { uid, emailVerified, isAnonymous, providerData, stsTokenManager: plainObjectTokenManager } = object;
         _assert(uid && plainObjectTokenManager, auth, "internal-error" /* AuthErrorCode.INTERNAL_ERROR */);
         const stsTokenManager = StsTokenManager.fromJSON(this.name, plainObjectTokenManager);
@@ -6517,7 +6390,7 @@ class UserImpl {
             lastLoginAt
         });
         if (providerData && Array.isArray(providerData)) {
-            user.providerData = providerData.map(userInfo => (Object.assign({}, userInfo)));
+            user.providerData = providerData.map(userInfo => ({ ...userInfo }));
         }
         if (_redirectEventId) {
             user._redirectEventId = _redirectEventId;
@@ -6554,7 +6427,7 @@ class UserImpl {
         const providerData = coreAccount.providerUserInfo !== undefined
             ? extractProviderData(coreAccount.providerUserInfo)
             : [];
-        const isAnonymous = !(coreAccount.email && coreAccount.passwordHash) && !(providerData === null || providerData === void 0 ? void 0 : providerData.length);
+        const isAnonymous = !(coreAccount.email && coreAccount.passwordHash) && !providerData?.length;
         const stsTokenManager = new StsTokenManager();
         stsTokenManager.updateFromIdToken(idToken);
         // Initialize the Firebase Auth user.
@@ -6576,7 +6449,7 @@ class UserImpl {
             providerData,
             metadata: new UserMetadata(coreAccount.createdAt, coreAccount.lastLoginAt),
             isAnonymous: !(coreAccount.email && coreAccount.passwordHash) &&
-                !(providerData === null || providerData === void 0 ? void 0 : providerData.length)
+                !providerData?.length
         };
         Object.assign(user, updates);
         return user;
@@ -6691,14 +6564,29 @@ class PersistenceUserManager {
         this.fullUserKey = _persistenceKeyName(this.userKey, config.apiKey, name);
         this.fullPersistenceKey = _persistenceKeyName("persistence" /* KeyName.PERSISTENCE_USER */, config.apiKey, name);
         this.boundEventHandler = auth._onStorageEvent.bind(auth);
-        this.persistence._addListener(this.fullUserKey, this.boundEventHandler);
+        try {
+            this.persistence._addListener(this.fullUserKey, this.boundEventHandler);
+        }
+        catch {
+            // Best effort; ignore errors if addListener throws
+        }
     }
     setCurrentUser(user) {
         return this.persistence._set(this.fullUserKey, user.toJSON());
     }
     async getCurrentUser() {
         const blob = await this.persistence._get(this.fullUserKey);
-        return blob ? UserImpl._fromJSON(this.auth, blob) : null;
+        if (!blob) {
+            return null;
+        }
+        if (typeof blob === 'string') {
+            const response = await getAccountInfo(this.auth, { idToken: blob }).catch(() => undefined);
+            if (!response) {
+                return null;
+            }
+            return UserImpl._fromGetAccountInfoResponse(this.auth, response, blob);
+        }
+        return UserImpl._fromJSON(this.auth, blob);
     }
     removeCurrentUser() {
         return this.persistence._remove(this.fullUserKey);
@@ -6718,7 +6606,10 @@ class PersistenceUserManager {
         }
     }
     delete() {
-        this.persistence._removeListener(this.fullUserKey, this.boundEventHandler);
+        try {
+            this.persistence._removeListener(this.fullUserKey, this.boundEventHandler);
+        }
+        catch { }
     }
     static async create(auth, persistenceHierarchy, userKey = "authUser" /* KeyName.AUTH_USER */) {
         if (!persistenceHierarchy.length) {
@@ -6726,8 +6617,13 @@ class PersistenceUserManager {
         }
         // Eliminate any persistences that are not available
         const availablePersistences = (await Promise.all(persistenceHierarchy.map(async (persistence) => {
-            if (await persistence._isAvailable()) {
-                return persistence;
+            try {
+                if (await persistence._isAvailable()) {
+                    return persistence;
+                }
+            }
+            catch {
+                return undefined;
             }
             return undefined;
         }))).filter(persistence => persistence);
@@ -6745,7 +6641,19 @@ class PersistenceUserManager {
             try {
                 const blob = await persistence._get(key);
                 if (blob) {
-                    const user = UserImpl._fromJSON(auth, blob); // throws for unparsable blob (wrong format)
+                    let user;
+                    if (typeof blob === 'string') {
+                        const response = await getAccountInfo(auth, {
+                            idToken: blob
+                        }).catch(() => undefined);
+                        if (!response) {
+                            break;
+                        }
+                        user = await UserImpl._fromGetAccountInfoResponse(auth, response, blob);
+                    }
+                    else {
+                        user = UserImpl._fromJSON(auth, blob); // throws for unparsable blob (wrong format)
+                    }
                     if (persistence !== selectedPersistence) {
                         userToMigrate = user;
                     }
@@ -6753,7 +6661,7 @@ class PersistenceUserManager {
                     break;
                 }
             }
-            catch (_a) { }
+            catch { }
         }
         // If we find the user in a persistence that does support migration, use
         // that migration path (of only persistences that support migration)
@@ -6776,7 +6684,7 @@ class PersistenceUserManager {
                 try {
                     await persistence._remove(key);
                 }
-                catch (_a) { }
+                catch { }
             }
         }));
         return new PersistenceUserManager(selectedPersistence, auth, userKey);
@@ -6846,7 +6754,7 @@ function _getBrowserName(userAgent) {
         // Most modern browsers have name/version at end of user agent string.
         const re = /([a-zA-Z\d\.]+)\/[a-zA-Z\d\.]*$/;
         const matches = userAgent.match(re);
-        if ((matches === null || matches === void 0 ? void 0 : matches.length) === 2) {
+        if (matches?.length === 2) {
             return matches[1];
         }
     }
@@ -6881,13 +6789,12 @@ function _isIOS(ua = getUA()) {
     return (/iphone|ipad|ipod/i.test(ua) ||
         (/macintosh/i.test(ua) && /mobile/i.test(ua)));
 }
-function _isIOS7Or8(ua = index_68602d24_getUA()) {
+function _isIOS7Or8(ua = index_4NFEPWkC_getUA()) {
     return (/(iPad|iPhone|iPod).*OS 7_\d/i.test(ua) ||
         /(iPad|iPhone|iPod).*OS 8_\d/i.test(ua));
 }
 function _isIOSStandalone(ua = getUA()) {
-    var _a;
-    return _isIOS(ua) && !!((_a = window.navigator) === null || _a === void 0 ? void 0 : _a.standalone);
+    return _isIOS(ua) && !!window.navigator?.standalone;
 }
 function _isIE10() {
     return isIE() && document.documentMode === 10;
@@ -7018,7 +6925,7 @@ class AuthMiddlewareQueue {
                 }
             }
             throw this.auth._errorFactory.create("login-blocked" /* AuthErrorCode.LOGIN_BLOCKED */, {
-                originalMessage: e === null || e === void 0 ? void 0 : e.message
+                originalMessage: e?.message
             });
         }
     }
@@ -7076,13 +6983,12 @@ const MINIMUM_MIN_PASSWORD_LENGTH = 6;
  */
 class PasswordPolicyImpl {
     constructor(response) {
-        var _a, _b, _c, _d;
         // Only include custom strength options defined in the response.
         const responseOptions = response.customStrengthOptions;
         this.customStrengthOptions = {};
         // TODO: Remove once the backend is updated to include the minimum min password length instead of undefined when there is no minimum length set.
         this.customStrengthOptions.minPasswordLength =
-            (_a = responseOptions.minPasswordLength) !== null && _a !== void 0 ? _a : MINIMUM_MIN_PASSWORD_LENGTH;
+            responseOptions.minPasswordLength ?? MINIMUM_MIN_PASSWORD_LENGTH;
         if (responseOptions.maxPasswordLength) {
             this.customStrengthOptions.maxPasswordLength =
                 responseOptions.maxPasswordLength;
@@ -7109,12 +7015,11 @@ class PasswordPolicyImpl {
         }
         // Use an empty string if no non-alphanumeric characters are specified in the response.
         this.allowedNonAlphanumericCharacters =
-            (_c = (_b = response.allowedNonAlphanumericCharacters) === null || _b === void 0 ? void 0 : _b.join('')) !== null && _c !== void 0 ? _c : '';
-        this.forceUpgradeOnSignin = (_d = response.forceUpgradeOnSignin) !== null && _d !== void 0 ? _d : false;
+            response.allowedNonAlphanumericCharacters?.join('') ?? '';
+        this.forceUpgradeOnSignin = response.forceUpgradeOnSignin ?? false;
         this.schemaVersion = response.schemaVersion;
     }
     validatePassword(password) {
-        var _a, _b, _c, _d, _e, _f;
         const status = {
             isValid: true,
             passwordPolicy: this
@@ -7123,12 +7028,12 @@ class PasswordPolicyImpl {
         this.validatePasswordLengthOptions(password, status);
         this.validatePasswordCharacterOptions(password, status);
         // Combine the status into single isValid property.
-        status.isValid && (status.isValid = (_a = status.meetsMinPasswordLength) !== null && _a !== void 0 ? _a : true);
-        status.isValid && (status.isValid = (_b = status.meetsMaxPasswordLength) !== null && _b !== void 0 ? _b : true);
-        status.isValid && (status.isValid = (_c = status.containsLowercaseLetter) !== null && _c !== void 0 ? _c : true);
-        status.isValid && (status.isValid = (_d = status.containsUppercaseLetter) !== null && _d !== void 0 ? _d : true);
-        status.isValid && (status.isValid = (_e = status.containsNumericCharacter) !== null && _e !== void 0 ? _e : true);
-        status.isValid && (status.isValid = (_f = status.containsNonAlphanumericCharacter) !== null && _f !== void 0 ? _f : true);
+        status.isValid && (status.isValid = status.meetsMinPasswordLength ?? true);
+        status.isValid && (status.isValid = status.meetsMaxPasswordLength ?? true);
+        status.isValid && (status.isValid = status.containsLowercaseLetter ?? true);
+        status.isValid && (status.isValid = status.containsUppercaseLetter ?? true);
+        status.isValid && (status.isValid = status.containsNumericCharacter ?? true);
+        status.isValid && (status.isValid = status.containsNonAlphanumericCharacter ?? true);
         return status;
     }
     /**
@@ -7243,6 +7148,7 @@ class AuthImpl {
         this._tenantRecaptchaConfigs = {};
         this._projectPasswordPolicy = null;
         this._tenantPasswordPolicies = {};
+        this._resolvePersistenceManagerAvailable = undefined;
         // Tracks the last notified UID for state change listeners to prevent
         // repeated calls to the callbacks. Undefined means it's never been
         // called, whereas null means it's been called with a signed out user
@@ -7253,6 +7159,9 @@ class AuthImpl {
         this.frameworks = [];
         this.name = app.name;
         this.clientVersion = config.sdkClientVersion;
+        // TODO(jamesdaniels) explore less hacky way to do this, cookie authentication needs
+        // persistenceMananger to be available. see _getFinalTarget for more context
+        this._persistenceManagerAvailable = new Promise(resolve => (this._resolvePersistenceManagerAvailable = resolve));
     }
     _initializeWithPersistence(persistenceHierarchy, popupRedirectResolver) {
         if (popupRedirectResolver) {
@@ -7261,17 +7170,25 @@ class AuthImpl {
         // Have to check for app deletion throughout initialization (after each
         // promise resolution)
         this._initializationPromise = this.queue(async () => {
-            var _a, _b;
             if (this._deleted) {
                 return;
             }
-            this.persistenceManager = await PersistenceUserManager.create(this, persistenceHierarchy);
+            try {
+                this.persistenceManager = await PersistenceUserManager.create(this, persistenceHierarchy);
+            }
+            catch (e) {
+                _logWarn(`Failed to initialize persistence: ${e}`);
+                this.persistenceManager = await PersistenceUserManager.create(this, []);
+            }
+            finally {
+                this._resolvePersistenceManagerAvailable?.();
+            }
             if (this._deleted) {
                 return;
             }
             // Initialize the resolver early if necessary (only applicable to web:
             // this will cause the iframe to load immediately in certain cases)
-            if ((_a = this._popupRedirectResolver) === null || _a === void 0 ? void 0 : _a._shouldInitProactively) {
+            if (this._popupRedirectResolver?._shouldInitProactively) {
                 // If this fails, don't halt auth loading
                 try {
                     await this._popupRedirectResolver._initialize(this);
@@ -7280,8 +7197,14 @@ class AuthImpl {
                     /* Ignore the error */
                 }
             }
-            await this.initializeCurrentUser(popupRedirectResolver);
-            this.lastNotifiedUid = ((_b = this.currentUser) === null || _b === void 0 ? void 0 : _b.uid) || null;
+            try {
+                await this.initializeCurrentUser(popupRedirectResolver);
+            }
+            catch (e) {
+                _logWarn(`Failed to initialize current user: ${e}`);
+                await this.directlySetCurrentUser(null).catch(() => { });
+            }
+            this.lastNotifiedUid = this.currentUser?.uid || null;
             if (this._deleted) {
                 return;
             }
@@ -7326,7 +7249,6 @@ class AuthImpl {
         }
     }
     async initializeCurrentUser(popupRedirectResolver) {
-        var _a;
         if (_isFirebaseServerApp(this.app)) {
             const idToken = this.app.settings.authIdToken;
             if (idToken) {
@@ -7346,15 +7268,15 @@ class AuthImpl {
         let needsTocheckMiddleware = false;
         if (popupRedirectResolver && this.config.authDomain) {
             await this.getOrInitRedirectPersistenceManager();
-            const redirectUserEventId = (_a = this.redirectUser) === null || _a === void 0 ? void 0 : _a._redirectEventId;
-            const storedUserEventId = futureCurrentUser === null || futureCurrentUser === void 0 ? void 0 : futureCurrentUser._redirectEventId;
+            const redirectUserEventId = this.redirectUser?._redirectEventId;
+            const storedUserEventId = futureCurrentUser?._redirectEventId;
             const result = await this.tryRedirectSignIn(popupRedirectResolver);
             // If the stored user (i.e. the old "currentUser") has a redirectId that
             // matches the redirect user, then we want to initially sign in with the
             // new user object from result.
             // TODO(samgho): More thoroughly test all of this
             if ((!redirectUserEventId || redirectUserEventId === storedUserEventId) &&
-                (result === null || result === void 0 ? void 0 : result.user)) {
+                result?.user) {
                 futureCurrentUser = result.user;
                 needsTocheckMiddleware = true;
             }
@@ -7429,7 +7351,7 @@ class AuthImpl {
             await _reloadWithoutSaving(user);
         }
         catch (e) {
-            if ((e === null || e === void 0 ? void 0 : e.code) !==
+            if (e?.code !==
                 `auth/${"network-request-failed" /* AuthErrorCode.NETWORK_REQUEST_FAILED */}`) {
                 // Something's wrong with the user's token. Log them out and remove
                 // them from storage
@@ -7535,8 +7457,11 @@ class AuthImpl {
             this._tenantPasswordPolicies[this.tenantId] = passwordPolicy;
         }
     }
-    _getPersistence() {
+    _getPersistenceType() {
         return this.assertedPersistence.persistence.type;
+    }
+    _getPersistence() {
+        return this.assertedPersistence.persistence;
     }
     _updateErrorMap(errorMap) {
         this._errorFactory = new ErrorFactory('auth', 'Firebase', errorMap());
@@ -7583,12 +7508,11 @@ class AuthImpl {
         }
     }
     toJSON() {
-        var _a;
         return {
             apiKey: this.config.apiKey,
             authDomain: this.config.authDomain,
             appName: this.name,
-            currentUser: (_a = this._currentUser) === null || _a === void 0 ? void 0 : _a.toJSON()
+            currentUser: this._currentUser?.toJSON()
         };
     }
     async _setRedirectUser(user, popupRedirectResolver) {
@@ -7609,16 +7533,15 @@ class AuthImpl {
         return this.redirectPersistenceManager;
     }
     async _redirectUserForId(id) {
-        var _a, _b;
         // Make sure we've cleared any pending persistence actions if we're not in
         // the initializer
         if (this._isInitialized) {
             await this.queue(async () => { });
         }
-        if (((_a = this._currentUser) === null || _a === void 0 ? void 0 : _a._redirectEventId) === id) {
+        if (this._currentUser?._redirectEventId === id) {
             return this._currentUser;
         }
-        if (((_b = this.redirectUser) === null || _b === void 0 ? void 0 : _b._redirectEventId) === id) {
+        if (this.redirectUser?._redirectEventId === id) {
             return this.redirectUser;
         }
         return null;
@@ -7654,12 +7577,11 @@ class AuthImpl {
         return this.currentUser;
     }
     notifyAuthListeners() {
-        var _a, _b;
         if (!this._isInitialized) {
             return;
         }
         this.idTokenSubscription.next(this.currentUser);
-        const currentUid = (_b = (_a = this.currentUser) === null || _a === void 0 ? void 0 : _a.uid) !== null && _b !== void 0 ? _b : null;
+        const currentUid = this.currentUser?.uid ?? null;
         if (this.lastNotifiedUid !== currentUid) {
             this.lastNotifiedUid = currentUid;
             this.authStateSubscription.next(this.currentUser);
@@ -7679,11 +7601,26 @@ class AuthImpl {
         _assert(promise, this, "internal-error" /* AuthErrorCode.INTERNAL_ERROR */);
         // The callback needs to be called asynchronously per the spec.
         // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        promise.then(() => {
+        promise
+            .then(() => {
             if (isUnsubscribed) {
                 return;
             }
             cb(this.currentUser);
+        })
+            .catch(err => {
+            if (isUnsubscribed) {
+                return;
+            }
+            if (typeof nextOrObserver !== 'function' && nextOrObserver.error) {
+                nextOrObserver.error(err);
+            }
+            else if (error) {
+                error(err);
+            }
+            else {
+                throw err;
+            }
         });
         if (typeof nextOrObserver === 'function') {
             const unsubscribe = subscription.addObserver(nextOrObserver, error, completed);
@@ -7713,11 +7650,21 @@ class AuthImpl {
             user._startProactiveRefresh();
         }
         this.currentUser = user;
-        if (user) {
-            await this.assertedPersistence.setCurrentUser(user);
-        }
-        else {
-            await this.assertedPersistence.removeCurrentUser();
+        if (this.persistenceManager) {
+            try {
+                if (user) {
+                    await this.persistenceManager.setCurrentUser(user);
+                }
+                else {
+                    await this.persistenceManager.removeCurrentUser();
+                }
+            }
+            catch (e) {
+                const originalMessage = e?.message || String(e);
+                const error = _errorWithCustomMessage(this, "internal-error" /* AuthErrorCode.INTERNAL_ERROR */, `An internal AuthError has occurred: ${originalMessage}`);
+                error.customData = { originalError: e };
+                throw error;
+            }
         }
     }
     queue(action) {
@@ -7744,7 +7691,6 @@ class AuthImpl {
         return this.frameworks;
     }
     async _getAdditionalHeaders() {
-        var _a;
         // Additional headers on every request
         const headers = {
             ["X-Client-Version" /* HttpHeader.X_CLIENT_VERSION */]: this.clientVersion
@@ -7753,10 +7699,11 @@ class AuthImpl {
             headers["X-Firebase-gmpid" /* HttpHeader.X_FIREBASE_GMPID */] = this.app.options.appId;
         }
         // If the heartbeat service exists, add the heartbeat string
-        const heartbeatsHeader = await ((_a = this.heartbeatServiceProvider
+        const heartbeatsHeader = await this.heartbeatServiceProvider
             .getImmediate({
             optional: true
-        })) === null || _a === void 0 ? void 0 : _a.getHeartbeatsHeader());
+        })
+            ?.getHeartbeatsHeader();
         if (heartbeatsHeader) {
             headers["X-Firebase-Client" /* HttpHeader.X_FIREBASE_CLIENT */] = heartbeatsHeader;
         }
@@ -7768,17 +7715,20 @@ class AuthImpl {
         return headers;
     }
     async _getAppCheckToken() {
-        var _a;
-        const appCheckTokenResult = await ((_a = this.appCheckServiceProvider
-            .getImmediate({ optional: true })) === null || _a === void 0 ? void 0 : _a.getToken());
-        if (appCheckTokenResult === null || appCheckTokenResult === void 0 ? void 0 : appCheckTokenResult.error) {
+        if (_isFirebaseServerApp(this.app) && this.app.settings.appCheckToken) {
+            return this.app.settings.appCheckToken;
+        }
+        const appCheckTokenResult = await this.appCheckServiceProvider
+            .getImmediate({ optional: true })
+            ?.getToken();
+        if (appCheckTokenResult?.error) {
             // Context: appCheck.getToken() will never throw even if an error happened.
             // In the error case, a dummy token will be returned along with an error field describing
             // the error. In general, we shouldn't care about the error condition and just use
             // the token (actual or dummy) to send requests.
             _logWarn(`Error while retrieving App Check token: ${appCheckTokenResult.error}`);
         }
-        return appCheckTokenResult === null || appCheckTokenResult === void 0 ? void 0 : appCheckTokenResult.token;
+        return appCheckTokenResult?.token;
     }
 }
 /**
@@ -7846,9 +7796,184 @@ function _generateCallbackName(prefix) {
     return `__${prefix}${Math.floor(Math.random() * 1000000)}`;
 }
 
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const _SOLVE_TIME_MS = 500;
+const _EXPIRATION_TIME_MS = 60000;
+const _WIDGET_ID_START = 1000000000000;
+class MockReCaptcha {
+    constructor(auth) {
+        this.auth = auth;
+        this.counter = _WIDGET_ID_START;
+        this._widgets = new Map();
+    }
+    render(container, parameters) {
+        const id = this.counter;
+        this._widgets.set(id, new MockWidget(container, this.auth.name, parameters || {}));
+        this.counter++;
+        return id;
+    }
+    reset(optWidgetId) {
+        const id = optWidgetId || _WIDGET_ID_START;
+        void this._widgets.get(id)?.delete();
+        this._widgets.delete(id);
+    }
+    getResponse(optWidgetId) {
+        const id = optWidgetId || _WIDGET_ID_START;
+        return this._widgets.get(id)?.getResponse() || '';
+    }
+    async execute(optWidgetId) {
+        const id = optWidgetId || _WIDGET_ID_START;
+        void this._widgets.get(id)?.execute();
+        return '';
+    }
+}
+class MockGreCAPTCHATopLevel {
+    constructor() {
+        this.enterprise = new MockGreCAPTCHA();
+    }
+    ready(callback) {
+        callback();
+    }
+    execute(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _siteKey, _options) {
+        return Promise.resolve('token');
+    }
+    render(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _container, _parameters) {
+        return '';
+    }
+}
+class MockGreCAPTCHA {
+    ready(callback) {
+        callback();
+    }
+    execute(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _siteKey, _options) {
+        return Promise.resolve('token');
+    }
+    render(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _container, _parameters) {
+        return '';
+    }
+}
+class MockWidget {
+    constructor(containerOrId, appName, params) {
+        this.params = params;
+        this.timerId = null;
+        this.deleted = false;
+        this.responseToken = null;
+        this.clickHandler = () => {
+            this.execute();
+        };
+        const container = typeof containerOrId === 'string'
+            ? document.getElementById(containerOrId)
+            : containerOrId;
+        _assert(container, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */, { appName });
+        this.container = container;
+        this.isVisible = this.params.size !== 'invisible';
+        if (this.isVisible) {
+            this.execute();
+        }
+        else {
+            this.container.addEventListener('click', this.clickHandler);
+        }
+    }
+    getResponse() {
+        this.checkIfDeleted();
+        return this.responseToken;
+    }
+    delete() {
+        this.checkIfDeleted();
+        this.deleted = true;
+        if (this.timerId) {
+            clearTimeout(this.timerId);
+            this.timerId = null;
+        }
+        this.container.removeEventListener('click', this.clickHandler);
+    }
+    execute() {
+        this.checkIfDeleted();
+        if (this.timerId) {
+            return;
+        }
+        this.timerId = window.setTimeout(() => {
+            this.responseToken = generateRandomAlphaNumericString(50);
+            const { callback, 'expired-callback': expiredCallback } = this.params;
+            if (callback) {
+                try {
+                    callback(this.responseToken);
+                }
+                catch (e) { }
+            }
+            this.timerId = window.setTimeout(() => {
+                this.timerId = null;
+                this.responseToken = null;
+                if (expiredCallback) {
+                    try {
+                        expiredCallback();
+                    }
+                    catch (e) { }
+                }
+                if (this.isVisible) {
+                    this.execute();
+                }
+            }, _EXPIRATION_TIME_MS);
+        }, _SOLVE_TIME_MS);
+    }
+    checkIfDeleted() {
+        if (this.deleted) {
+            throw new Error('reCAPTCHA mock was already deleted!');
+        }
+    }
+}
+function generateRandomAlphaNumericString(len) {
+    const chars = [];
+    const allowedChars = '1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    for (let i = 0; i < len; i++) {
+        chars.push(allowedChars.charAt(Math.floor(Math.random() * allowedChars.length)));
+    }
+    return chars.join('');
+}
+
 /* eslint-disable @typescript-eslint/no-require-imports */
+/**
+ * @license
+ * Copyright 2022 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 const RECAPTCHA_ENTERPRISE_VERIFIER_TYPE = 'recaptcha-enterprise';
 const FAKE_TOKEN = 'NO_RECAPTCHA';
+const RECAPTCHA_ENTERPRISE_ONLOAD_CALLBACK_NAME = 'onFirebaseAuthREInstanceReady';
 class RecaptchaEnterpriseVerifier {
     /**
      *
@@ -7921,10 +8046,20 @@ class RecaptchaEnterpriseVerifier {
                 reject(Error('No reCAPTCHA enterprise script loaded.'));
             }
         }
+        // Returns Promise for a mock token when appVerificationDisabledForTesting is true.
+        if (this.auth.settings.appVerificationDisabledForTesting) {
+            const mockRecaptcha = new MockGreCAPTCHATopLevel();
+            return mockRecaptcha.execute('siteKey', { action: 'verify' });
+        }
         return new Promise((resolve, reject) => {
             retrieveSiteKey(this.auth)
-                .then(siteKey => {
-                if (!forceRefresh && isEnterprise(window.grecaptcha)) {
+                .then(async (siteKey) => {
+                if (!forceRefresh &&
+                    isEnterprise(window.grecaptcha) &&
+                    // If download has already been initiated, do not trigger another
+                    // download, await the promise here.
+                    RecaptchaEnterpriseVerifier.scriptInjectionDeferred) {
+                    await RecaptchaEnterpriseVerifier.scriptInjectionDeferred.promise;
                     retrieveRecaptchaToken(siteKey, resolve, reject);
                 }
                 else {
@@ -7934,9 +8069,25 @@ class RecaptchaEnterpriseVerifier {
                     }
                     let url = _recaptchaEnterpriseScriptUrl();
                     if (url.length !== 0) {
-                        url += siteKey;
+                        url +=
+                            siteKey +
+                                `&onload=${RECAPTCHA_ENTERPRISE_ONLOAD_CALLBACK_NAME}`;
                     }
+                    // Existence of deferred indicates download has been initiated.
+                    RecaptchaEnterpriseVerifier.scriptInjectionDeferred =
+                        new Deferred();
+                    /**
+                     * Script attached to global window object that will be called
+                     * when the ReCAPTCHA Enterprise instance is ready.
+                     * grecaptcha.ready() is not reliable when there are multiple
+                     * scripts on the page, and script.onload only indicates the
+                     * script has downloaded, not that it has initialized.
+                     */
+                    window[RECAPTCHA_ENTERPRISE_ONLOAD_CALLBACK_NAME] = () => {
+                        RecaptchaEnterpriseVerifier.scriptInjectionDeferred?.resolve();
+                    };
                     _loadJS(url)
+                        .then(() => RecaptchaEnterpriseVerifier.scriptInjectionDeferred?.promise)
                         .then(() => {
                         retrieveRecaptchaToken(siteKey, resolve, reject);
                     })
@@ -7951,17 +8102,62 @@ class RecaptchaEnterpriseVerifier {
         });
     }
 }
-async function injectRecaptchaFields(auth, request, action, captchaResp = false) {
+/**
+ * Deferred that resolves when script tag has been injected onto the page
+ * and the script is ready (grecaptcha.ready() and script.onload are not
+ * reliable indicators, so this resolves when the global
+ * `window[RECAPTCHA_ENTERPRISE_ONLOAD_CALLBACK_NAME]()` callback provided to the recaptcha url param "onload"
+ * is triggered).
+ * As a static variable this is applied to all instances of the class.
+ * This will cause an error if users try to create multiple RecaptchaVerifiers
+ * with different Recaptcha Enterprise sitekeys, which should be an
+ * unuspported use case.
+ */
+RecaptchaEnterpriseVerifier.scriptInjectionDeferred = null;
+async function injectRecaptchaFields(auth, request, action, isCaptchaResp = false, isFakeToken = false) {
     const verifier = new RecaptchaEnterpriseVerifier(auth);
     let captchaResponse;
-    try {
-        captchaResponse = await verifier.verify(action);
+    if (isFakeToken) {
+        captchaResponse = FAKE_TOKEN;
     }
-    catch (error) {
-        captchaResponse = await verifier.verify(action, true);
+    else {
+        try {
+            captchaResponse = await verifier.verify(action);
+        }
+        catch (error) {
+            captchaResponse = await verifier.verify(action, true);
+        }
     }
-    const newRequest = Object.assign({}, request);
-    if (!captchaResp) {
+    const newRequest = { ...request };
+    if (action === "mfaSmsEnrollment" /* RecaptchaActionName.MFA_SMS_ENROLLMENT */ ||
+        action === "mfaSmsSignIn" /* RecaptchaActionName.MFA_SMS_SIGNIN */) {
+        if ('phoneEnrollmentInfo' in newRequest) {
+            const phoneNumber = newRequest.phoneEnrollmentInfo.phoneNumber;
+            const recaptchaToken = newRequest.phoneEnrollmentInfo.recaptchaToken;
+            Object.assign(newRequest, {
+                'phoneEnrollmentInfo': {
+                    phoneNumber,
+                    recaptchaToken,
+                    captchaResponse,
+                    'clientType': "CLIENT_TYPE_WEB" /* RecaptchaClientType.WEB */,
+                    'recaptchaVersion': "RECAPTCHA_ENTERPRISE" /* RecaptchaVersion.ENTERPRISE */
+                }
+            });
+        }
+        else if ('phoneSignInInfo' in newRequest) {
+            const recaptchaToken = newRequest.phoneSignInInfo.recaptchaToken;
+            Object.assign(newRequest, {
+                'phoneSignInInfo': {
+                    recaptchaToken,
+                    captchaResponse,
+                    'clientType': "CLIENT_TYPE_WEB" /* RecaptchaClientType.WEB */,
+                    'recaptchaVersion': "RECAPTCHA_ENTERPRISE" /* RecaptchaVersion.ENTERPRISE */
+                }
+            });
+        }
+        return newRequest;
+    }
+    if (!isCaptchaResp) {
         Object.assign(newRequest, { captchaResponse });
     }
     else {
@@ -7973,24 +8169,65 @@ async function injectRecaptchaFields(auth, request, action, captchaResp = false)
     });
     return newRequest;
 }
-async function handleRecaptchaFlow(authInstance, request, actionName, actionMethod) {
-    var _a;
-    if ((_a = authInstance
-        ._getRecaptchaConfig()) === null || _a === void 0 ? void 0 : _a.isProviderEnabled("EMAIL_PASSWORD_PROVIDER" /* RecaptchaProvider.EMAIL_PASSWORD_PROVIDER */)) {
-        const requestWithRecaptcha = await injectRecaptchaFields(authInstance, request, actionName, actionName === "getOobCode" /* RecaptchaActionName.GET_OOB_CODE */);
-        return actionMethod(authInstance, requestWithRecaptcha);
+async function handleRecaptchaFlow(authInstance, request, actionName, actionMethod, recaptchaAuthProvider) {
+    if (recaptchaAuthProvider === "EMAIL_PASSWORD_PROVIDER" /* RecaptchaAuthProvider.EMAIL_PASSWORD_PROVIDER */) {
+        if (authInstance
+            ._getRecaptchaConfig()
+            ?.isProviderEnabled("EMAIL_PASSWORD_PROVIDER" /* RecaptchaAuthProvider.EMAIL_PASSWORD_PROVIDER */)) {
+            const requestWithRecaptcha = await injectRecaptchaFields(authInstance, request, actionName, actionName === "getOobCode" /* RecaptchaActionName.GET_OOB_CODE */);
+            return actionMethod(authInstance, requestWithRecaptcha);
+        }
+        else {
+            return actionMethod(authInstance, request).catch(async (error) => {
+                if (error.code === `auth/${"missing-recaptcha-token" /* AuthErrorCode.MISSING_RECAPTCHA_TOKEN */}`) {
+                    console.log(`${actionName} is protected by reCAPTCHA Enterprise for this project. Automatically triggering the reCAPTCHA flow and restarting the flow.`);
+                    const requestWithRecaptcha = await injectRecaptchaFields(authInstance, request, actionName, actionName === "getOobCode" /* RecaptchaActionName.GET_OOB_CODE */);
+                    return actionMethod(authInstance, requestWithRecaptcha);
+                }
+                else {
+                    return Promise.reject(error);
+                }
+            });
+        }
+    }
+    else if (recaptchaAuthProvider === "PHONE_PROVIDER" /* RecaptchaAuthProvider.PHONE_PROVIDER */) {
+        if (authInstance
+            ._getRecaptchaConfig()
+            ?.isProviderEnabled("PHONE_PROVIDER" /* RecaptchaAuthProvider.PHONE_PROVIDER */)) {
+            const requestWithRecaptcha = await injectRecaptchaFields(authInstance, request, actionName);
+            return actionMethod(authInstance, requestWithRecaptcha).catch(async (error) => {
+                if (authInstance
+                    ._getRecaptchaConfig()
+                    ?.getProviderEnforcementState("PHONE_PROVIDER" /* RecaptchaAuthProvider.PHONE_PROVIDER */) === "AUDIT" /* EnforcementState.AUDIT */) {
+                    // AUDIT mode
+                    if (error.code === `auth/${"missing-recaptcha-token" /* AuthErrorCode.MISSING_RECAPTCHA_TOKEN */}` ||
+                        error.code === `auth/${"invalid-app-credential" /* AuthErrorCode.INVALID_APP_CREDENTIAL */}`) {
+                        console.log(`Failed to verify with reCAPTCHA Enterprise. Automatically triggering the reCAPTCHA v2 flow to complete the ${actionName} flow.`);
+                        // reCAPTCHA Enterprise token is missing or reCAPTCHA Enterprise token
+                        // check fails.
+                        // Fallback to reCAPTCHA v2 flow.
+                        const requestWithRecaptchaFields = await injectRecaptchaFields(authInstance, request, actionName, false, // isCaptchaResp
+                        true // isFakeToken
+                        );
+                        // This will call the PhoneApiCaller to fetch and inject reCAPTCHA v2 token.
+                        return actionMethod(authInstance, requestWithRecaptchaFields);
+                    }
+                }
+                // ENFORCE mode or AUDIT mode with any other error.
+                return Promise.reject(error);
+            });
+        }
+        else {
+            // Do reCAPTCHA v2 flow.
+            const requestWithRecaptchaFields = await injectRecaptchaFields(authInstance, request, actionName, false, // isCaptchaResp
+            true // isFakeToken
+            );
+            // This will call the PhoneApiCaller to fetch and inject v2 token.
+            return actionMethod(authInstance, requestWithRecaptchaFields);
+        }
     }
     else {
-        return actionMethod(authInstance, request).catch(async (error) => {
-            if (error.code === `auth/${"missing-recaptcha-token" /* AuthErrorCode.MISSING_RECAPTCHA_TOKEN */}`) {
-                console.log(`${actionName} is protected by reCAPTCHA Enterprise for this project. Automatically triggering the reCAPTCHA flow and restarting the flow.`);
-                const requestWithRecaptcha = await injectRecaptchaFields(authInstance, request, actionName, actionName === "getOobCode" /* RecaptchaActionName.GET_OOB_CODE */);
-                return actionMethod(authInstance, requestWithRecaptcha);
-            }
-            else {
-                return Promise.reject(error);
-            }
-        });
+        return Promise.reject(recaptchaAuthProvider + ' provider is not supported.');
     }
 }
 async function _initializeRecaptchaConfig(auth) {
@@ -8006,7 +8243,7 @@ async function _initializeRecaptchaConfig(auth) {
     else {
         authInternal._tenantRecaptchaConfigs[authInternal.tenantId] = config;
     }
-    if (config.isProviderEnabled("EMAIL_PASSWORD_PROVIDER" /* RecaptchaProvider.EMAIL_PASSWORD_PROVIDER */)) {
+    if (config.isAnyProviderEnabled()) {
         const verifier = new RecaptchaEnterpriseVerifier(authInternal);
         void verifier.verify();
     }
@@ -8058,7 +8295,7 @@ function initializeAuth(app, deps) {
     if (provider.isInitialized()) {
         const auth = provider.getImmediate();
         const initialOptions = provider.getOptions();
-        if (deepEqual(initialOptions, deps !== null && deps !== void 0 ? deps : {})) {
+        if (deepEqual(initialOptions, deps ?? {})) {
             return auth;
         }
         else {
@@ -8069,15 +8306,15 @@ function initializeAuth(app, deps) {
     return auth;
 }
 function _initializeAuthInstance(auth, deps) {
-    const persistence = (deps === null || deps === void 0 ? void 0 : deps.persistence) || [];
+    const persistence = deps?.persistence || [];
     const hierarchy = (Array.isArray(persistence) ? persistence : [persistence]).map(_getInstance);
-    if (deps === null || deps === void 0 ? void 0 : deps.errorMap) {
+    if (deps?.errorMap) {
         auth._updateErrorMap(deps.errorMap);
     }
     // This promise is intended to float; auth initialization happens in the
     // background, meanwhile the auth object may be used by the app.
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    auth._initializeWithPersistence(hierarchy, deps === null || deps === void 0 ? void 0 : deps.popupRedirectResolver);
+    auth._initializeWithPersistence(hierarchy, deps?.popupRedirectResolver);
 }
 
 /**
@@ -8104,22 +8341,40 @@ function _initializeAuthInstance(auth, deps) {
  */
 function connectAuthEmulator(auth, url, options) {
     const authInternal = _castAuth(auth);
-    _assert(authInternal._canInitEmulator, authInternal, "emulator-config-failed" /* AuthErrorCode.EMULATOR_CONFIG_FAILED */);
     _assert(/^https?:\/\//.test(url), authInternal, "invalid-emulator-scheme" /* AuthErrorCode.INVALID_EMULATOR_SCHEME */);
-    const disableWarnings = !!(options === null || options === void 0 ? void 0 : options.disableWarnings);
+    const disableWarnings = !!options?.disableWarnings;
     const protocol = extractProtocol(url);
     const { host, port } = extractHostAndPort(url);
     const portStr = port === null ? '' : `:${port}`;
     // Always replace path with "/" (even if input url had no path at all, or had a different one).
-    authInternal.config.emulator = { url: `${protocol}//${host}${portStr}/` };
-    authInternal.settings.appVerificationDisabledForTesting = true;
-    authInternal.emulatorConfig = Object.freeze({
+    const emulator = { url: `${protocol}//${host}${portStr}/` };
+    const emulatorConfig = Object.freeze({
         host,
         port,
         protocol: protocol.replace(':', ''),
         options: Object.freeze({ disableWarnings })
     });
-    if (!disableWarnings) {
+    // There are a few scenarios to guard against if the Auth instance has already started:
+    if (!authInternal._canInitEmulator) {
+        // Applications may not initialize the emulator for the first time if Auth has already started
+        // to make network requests.
+        _assert(authInternal.config.emulator && authInternal.emulatorConfig, authInternal, "emulator-config-failed" /* AuthErrorCode.EMULATOR_CONFIG_FAILED */);
+        // Applications may not alter the configuration of the emulator (aka pass a different config)
+        // once Auth has started to make network requests.
+        _assert(deepEqual(emulator, authInternal.config.emulator) &&
+            deepEqual(emulatorConfig, authInternal.emulatorConfig), authInternal, "emulator-config-failed" /* AuthErrorCode.EMULATOR_CONFIG_FAILED */);
+        // It's valid, however, to invoke connectAuthEmulator() after Auth has started making
+        // connections, so long as the config matches the existing config. This results in a no-op.
+        return;
+    }
+    authInternal.config.emulator = emulator;
+    authInternal.emulatorConfig = emulatorConfig;
+    authInternal.settings.appVerificationDisabledForTesting = true;
+    // Workaround to get cookies in Firebase Studio
+    if (isCloudWorkstation(host)) {
+        void pingServer(`${protocol}//${host}${portStr}`);
+    }
+    else if (!disableWarnings) {
         emitEmulatorWarning();
     }
 }
@@ -8412,7 +8667,7 @@ class EmailAuthCredential extends AuthCredential {
      */
     static fromJSON(json) {
         const obj = typeof json === 'string' ? JSON.parse(json) : json;
-        if ((obj === null || obj === void 0 ? void 0 : obj.email) && (obj === null || obj === void 0 ? void 0 : obj.password)) {
+        if (obj?.email && obj?.password) {
             if (obj.signInMethod === "password" /* SignInMethod.EMAIL_PASSWORD */) {
                 return this._fromEmailAndPassword(obj.email, obj.password);
             }
@@ -8432,7 +8687,7 @@ class EmailAuthCredential extends AuthCredential {
                     password: this._password,
                     clientType: "CLIENT_TYPE_WEB" /* RecaptchaClientType.WEB */
                 };
-                return handleRecaptchaFlow(auth, request, "signInWithPassword" /* RecaptchaActionName.SIGN_IN_WITH_PASSWORD */, signInWithPassword);
+                return handleRecaptchaFlow(auth, request, "signInWithPassword" /* RecaptchaActionName.SIGN_IN_WITH_PASSWORD */, signInWithPassword, "EMAIL_PASSWORD_PROVIDER" /* RecaptchaAuthProvider.EMAIL_PASSWORD_PROVIDER */);
             case "emailLink" /* SignInMethod.EMAIL_LINK */:
                 return signInWithEmailLink$1(auth, {
                     email: this._email,
@@ -8453,7 +8708,7 @@ class EmailAuthCredential extends AuthCredential {
                     password: this._password,
                     clientType: "CLIENT_TYPE_WEB" /* RecaptchaClientType.WEB */
                 };
-                return handleRecaptchaFlow(auth, request, "signUpPassword" /* RecaptchaActionName.SIGN_UP_PASSWORD */, linkEmailPassword);
+                return handleRecaptchaFlow(auth, request, "signUpPassword" /* RecaptchaActionName.SIGN_UP_PASSWORD */, linkEmailPassword, "EMAIL_PASSWORD_PROVIDER" /* RecaptchaAuthProvider.EMAIL_PASSWORD_PROVIDER */);
             case "emailLink" /* SignInMethod.EMAIL_LINK */:
                 return signInWithEmailLinkForLinking(auth, {
                     idToken,
@@ -8572,7 +8827,7 @@ class OAuthCredential extends AuthCredential {
      */
     static fromJSON(json) {
         const obj = typeof json === 'string' ? JSON.parse(json) : json;
-        const { providerId, signInMethod } = obj, rest = __rest(obj, ["providerId", "signInMethod"]);
+        const { providerId, signInMethod, ...rest } = obj;
         if (!providerId || !signInMethod) {
             return null;
         }
@@ -8663,7 +8918,10 @@ const VERIFY_PHONE_NUMBER_FOR_EXISTING_ERROR_MAP_ = {
     ["USER_NOT_FOUND" /* ServerError.USER_NOT_FOUND */]: "user-not-found" /* AuthErrorCode.USER_DELETED */
 };
 async function verifyPhoneNumberForExisting(auth, request) {
-    const apiRequest = Object.assign(Object.assign({}, request), { operation: 'REAUTH' });
+    const apiRequest = {
+        ...request,
+        operation: 'REAUTH'
+    };
     return _performSignInRequest(auth, "POST" /* HttpMethod.POST */, "/v1/accounts:signInWithPhoneNumber" /* Endpoint.SIGN_IN_WITH_PHONE_NUMBER */, _addTidIfNecessary(auth, apiRequest), VERIFY_PHONE_NUMBER_FOR_EXISTING_ERROR_MAP_);
 }
 
@@ -8707,7 +8965,10 @@ class PhoneAuthCredential extends AuthCredential {
     }
     /** @internal */
     _linkToIdToken(auth, idToken) {
-        return linkWithPhoneNumber$1(auth, Object.assign({ idToken }, this._makeVerificationRequest()));
+        return linkWithPhoneNumber$1(auth, {
+            idToken,
+            ...this._makeVerificationRequest()
+        });
     }
     /** @internal */
     _getReauthenticationResolver(auth) {
@@ -8835,19 +9096,18 @@ class ActionCodeURL {
      * @internal
      */
     constructor(actionLink) {
-        var _a, _b, _c, _d, _e, _f;
         const searchParams = querystringDecode(extractQuerystring(actionLink));
-        const apiKey = (_a = searchParams["apiKey" /* QueryField.API_KEY */]) !== null && _a !== void 0 ? _a : null;
-        const code = (_b = searchParams["oobCode" /* QueryField.CODE */]) !== null && _b !== void 0 ? _b : null;
-        const operation = parseMode((_c = searchParams["mode" /* QueryField.MODE */]) !== null && _c !== void 0 ? _c : null);
+        const apiKey = searchParams["apiKey" /* QueryField.API_KEY */] ?? null;
+        const code = searchParams["oobCode" /* QueryField.CODE */] ?? null;
+        const operation = parseMode(searchParams["mode" /* QueryField.MODE */] ?? null);
         // Validate API key, code and mode.
         _assert(apiKey && code && operation, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
         this.apiKey = apiKey;
         this.operation = operation;
         this.code = code;
-        this.continueUrl = (_d = searchParams["continueUrl" /* QueryField.CONTINUE_URL */]) !== null && _d !== void 0 ? _d : null;
-        this.languageCode = (_e = searchParams["languageCode" /* QueryField.LANGUAGE_CODE */]) !== null && _e !== void 0 ? _e : null;
-        this.tenantId = (_f = searchParams["tenantId" /* QueryField.TENANT_ID */]) !== null && _f !== void 0 ? _f : null;
+        this.continueUrl = searchParams["continueUrl" /* QueryField.CONTINUE_URL */] ?? null;
+        this.languageCode = searchParams["lang" /* QueryField.LANGUAGE_CODE */] ?? null;
+        this.tenantId = searchParams["tenantId" /* QueryField.TENANT_ID */] ?? null;
     }
     /**
      * Parses the email action link string and returns an {@link ActionCodeURL} if the link is valid,
@@ -8863,7 +9123,7 @@ class ActionCodeURL {
         try {
             return new ActionCodeURL(actionLink);
         }
-        catch (_a) {
+        catch {
             return null;
         }
     }
@@ -9153,13 +9413,17 @@ class OAuthProvider extends BaseOAuthProvider {
      * or the ID token string.
      */
     credential(params) {
-        return this._credential(Object.assign(Object.assign({}, params), { nonce: params.rawNonce }));
+        return this._credential({ ...params, nonce: params.rawNonce });
     }
     /** An internal credential method that accepts more permissive options */
     _credential(params) {
         _assert(params.idToken || params.accessToken, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
         // For OAuthCredential, sign in method is same as providerId.
-        return OAuthCredential._fromParams(Object.assign(Object.assign({}, params), { providerId: this.providerId, signInMethod: this.providerId }));
+        return OAuthCredential._fromParams({
+            ...params,
+            providerId: this.providerId,
+            signInMethod: this.providerId
+        });
     }
     /**
      * Used to extract the underlying {@link OAuthCredential} from a {@link UserCredential}.
@@ -9311,7 +9575,7 @@ class FacebookAuthProvider extends BaseOAuthProvider {
         try {
             return FacebookAuthProvider.credential(tokenResponse.oauthAccessToken);
         }
-        catch (_a) {
+        catch {
             return null;
         }
     }
@@ -9433,7 +9697,7 @@ class GoogleAuthProvider extends BaseOAuthProvider {
         try {
             return GoogleAuthProvider.credential(oauthIdToken, oauthAccessToken);
         }
-        catch (_a) {
+        catch {
             return null;
         }
     }
@@ -9544,7 +9808,7 @@ class GithubAuthProvider extends BaseOAuthProvider {
         try {
             return GithubAuthProvider.credential(tokenResponse.oauthAccessToken);
         }
-        catch (_a) {
+        catch {
             return null;
         }
     }
@@ -9569,6 +9833,11 @@ GithubAuthProvider.PROVIDER_ID = "github.com" /* ProviderId.GITHUB */;
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ */
+/**
+ * Represents the SAML credentials returned by an {@link SAMLAuthProvider}.
+ *
+ * @public
  */
 const IDP_REQUEST_URI = 'http://localhost';
 /**
@@ -9828,7 +10097,7 @@ class TwitterAuthProvider extends BaseOAuthProvider {
         try {
             return TwitterAuthProvider.credential(oauthAccessToken, oauthTokenSecret);
         }
-        catch (_a) {
+        catch {
             return null;
         }
     }
@@ -9944,13 +10213,12 @@ function providerIdForResponse(response) {
  * @public
  */
 async function signInAnonymously(auth) {
-    var _a;
     if (_isFirebaseServerApp(auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(auth));
     }
     const authInternal = _castAuth(auth);
     await authInternal._initializationPromise;
-    if ((_a = authInternal.currentUser) === null || _a === void 0 ? void 0 : _a.isAnonymous) {
+    if (authInternal.currentUser?.isAnonymous) {
         // If an anonymous user is already signed in, no need to sign them in again.
         return new UserCredentialImpl({
             user: authInternal.currentUser,
@@ -9984,7 +10252,6 @@ async function signInAnonymously(auth) {
  */
 class MultiFactorError extends FirebaseError {
     constructor(auth, error, operationType, user) {
-        var _a;
         super(error.code, error.message);
         this.operationType = operationType;
         this.user = user;
@@ -9992,7 +10259,7 @@ class MultiFactorError extends FirebaseError {
         Object.setPrototypeOf(this, MultiFactorError.prototype);
         this.customData = {
             appName: auth.name,
-            tenantId: (_a = auth.tenantId) !== null && _a !== void 0 ? _a : undefined,
+            tenantId: auth.tenantId ?? undefined,
             _serverResponse: error.customData._serverResponse,
             operationType
         };
@@ -10063,7 +10330,7 @@ function providerDataAsNames(providerData) {
  * @public
  */
 async function unlink(user, providerId) {
-    const userInternal = index_68602d24_getModularInstance(user);
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
     await _assertLinkedStatus(true, userInternal, providerId);
     const { providerUserInfo } = await deleteLinkedAccounts(userInternal.auth, {
         idToken: await userInternal.getIdToken(),
@@ -10123,7 +10390,7 @@ async function _reauthenticate(user, credential, bypassAuthState = false) {
     }
     catch (e) {
         // Convert user deleted error into user mismatch
-        if ((e === null || e === void 0 ? void 0 : e.code) === `auth/${"user-not-found" /* AuthErrorCode.USER_DELETED */}`) {
+        if (e?.code === `auth/${"user-not-found" /* AuthErrorCode.USER_DELETED */}`) {
             _fail(auth, "user-mismatch" /* AuthErrorCode.USER_MISMATCH */);
         }
         throw e;
@@ -10208,7 +10475,7 @@ async function linkWithCredential(user, credential) {
  * @public
  */
 async function reauthenticateWithCredential(user, credential) {
-    return _reauthenticate(index_68602d24_getModularInstance(user), credential);
+    return _reauthenticate(index_4NFEPWkC_getModularInstance(user), credential);
 }
 
 /**
@@ -10267,7 +10534,7 @@ async function signInWithCustomToken$1(auth, request) {
  * @public
  */
 async function signInWithCustomToken(auth, customToken) {
-    if (index_68602d24_isFirebaseServerApp(auth.app)) {
+    if (index_4NFEPWkC_isFirebaseServerApp(auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(auth));
     }
     const authInternal = _castAuth(auth);
@@ -10348,12 +10615,14 @@ class TotpMultiFactorInfoImpl extends MultiFactorInfoImpl {
  * limitations under the License.
  */
 function _setActionCodeSettingsOnRequest(auth, request, actionCodeSettings) {
-    var _a;
-    _assert(((_a = actionCodeSettings.url) === null || _a === void 0 ? void 0 : _a.length) > 0, auth, "invalid-continue-uri" /* AuthErrorCode.INVALID_CONTINUE_URI */);
+    _assert(actionCodeSettings.url?.length > 0, auth, "invalid-continue-uri" /* AuthErrorCode.INVALID_CONTINUE_URI */);
     _assert(typeof actionCodeSettings.dynamicLinkDomain === 'undefined' ||
         actionCodeSettings.dynamicLinkDomain.length > 0, auth, "invalid-dynamic-link-domain" /* AuthErrorCode.INVALID_DYNAMIC_LINK_DOMAIN */);
+    _assert(typeof actionCodeSettings.linkDomain === 'undefined' ||
+        actionCodeSettings.linkDomain.length > 0, auth, "invalid-hosting-link-domain" /* AuthErrorCode.INVALID_HOSTING_LINK_DOMAIN */);
     request.continueUrl = actionCodeSettings.url;
     request.dynamicLinkDomain = actionCodeSettings.dynamicLinkDomain;
+    request.linkDomain = actionCodeSettings.linkDomain;
     request.canHandleCodeInApp = actionCodeSettings.handleCodeInApp;
     if (actionCodeSettings.iOS) {
         _assert(actionCodeSettings.iOS.bundleId.length > 0, auth, "missing-ios-bundle-id" /* AuthErrorCode.MISSING_IOS_BUNDLE_ID */);
@@ -10448,7 +10717,7 @@ async function sendPasswordResetEmail(auth, email, actionCodeSettings) {
     if (actionCodeSettings) {
         _setActionCodeSettingsOnRequest(authInternal, request, actionCodeSettings);
     }
-    await handleRecaptchaFlow(authInternal, request, "getOobCode" /* RecaptchaActionName.GET_OOB_CODE */, sendPasswordResetEmail$1);
+    await handleRecaptchaFlow(authInternal, request, "getOobCode" /* RecaptchaActionName.GET_OOB_CODE */, sendPasswordResetEmail$1, "EMAIL_PASSWORD_PROVIDER" /* RecaptchaAuthProvider.EMAIL_PASSWORD_PROVIDER */);
 }
 /**
  * Completes the password reset process, given a confirmation code and new password.
@@ -10460,7 +10729,7 @@ async function sendPasswordResetEmail(auth, email, actionCodeSettings) {
  * @public
  */
 async function confirmPasswordReset(auth, oobCode, newPassword) {
-    await resetPassword(index_68602d24_getModularInstance(auth), {
+    await resetPassword(index_4NFEPWkC_getModularInstance(auth), {
         oobCode,
         newPassword
     })
@@ -10482,7 +10751,7 @@ async function confirmPasswordReset(auth, oobCode, newPassword) {
  * @public
  */
 async function applyActionCode(auth, oobCode) {
-    await applyActionCode$1(index_68602d24_getModularInstance(auth), { oobCode });
+    await applyActionCode$1(index_4NFEPWkC_getModularInstance(auth), { oobCode });
 }
 /**
  * Checks a verification code sent to the user by email or other out-of-band mechanism.
@@ -10495,7 +10764,7 @@ async function applyActionCode(auth, oobCode) {
  * @public
  */
 async function checkActionCode(auth, oobCode) {
-    const authModular = index_68602d24_getModularInstance(auth);
+    const authModular = index_4NFEPWkC_getModularInstance(auth);
     const response = await resetPassword(authModular, { oobCode });
     // Email could be empty only if the request type is EMAIL_SIGNIN or
     // VERIFY_AND_CHANGE_EMAIL.
@@ -10546,7 +10815,7 @@ async function checkActionCode(auth, oobCode) {
  * @public
  */
 async function verifyPasswordResetCode(auth, code) {
-    const { data } = await checkActionCode(index_68602d24_getModularInstance(auth), code);
+    const { data } = await checkActionCode(index_4NFEPWkC_getModularInstance(auth), code);
     // Email should always be present since a code was sent to it
     return data.email;
 }
@@ -10571,7 +10840,7 @@ async function verifyPasswordResetCode(auth, code) {
  * @public
  */
 async function createUserWithEmailAndPassword(auth, email, password) {
-    if (index_68602d24_isFirebaseServerApp(auth.app)) {
+    if (index_4NFEPWkC_isFirebaseServerApp(auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(auth));
     }
     const authInternal = _castAuth(auth);
@@ -10581,7 +10850,7 @@ async function createUserWithEmailAndPassword(auth, email, password) {
         password,
         clientType: "CLIENT_TYPE_WEB" /* RecaptchaClientType.WEB */
     };
-    const signUpResponse = handleRecaptchaFlow(authInternal, request, "signUpPassword" /* RecaptchaActionName.SIGN_UP_PASSWORD */, signUp);
+    const signUpResponse = handleRecaptchaFlow(authInternal, request, "signUpPassword" /* RecaptchaActionName.SIGN_UP_PASSWORD */, signUp, "EMAIL_PASSWORD_PROVIDER" /* RecaptchaAuthProvider.EMAIL_PASSWORD_PROVIDER */);
     const response = await signUpResponse.catch(error => {
         if (error.code === `auth/${"password-does-not-meet-requirements" /* AuthErrorCode.PASSWORD_DOES_NOT_MEET_REQUIREMENTS */}`) {
             void recachePasswordPolicy(auth);
@@ -10695,7 +10964,7 @@ async function sendSignInLinkToEmail(auth, email, actionCodeSettings) {
         }
     }
     setActionCodeSettings(request, actionCodeSettings);
-    await handleRecaptchaFlow(authInternal, request, "getOobCode" /* RecaptchaActionName.GET_OOB_CODE */, sendSignInLinkToEmail$1);
+    await handleRecaptchaFlow(authInternal, request, "getOobCode" /* RecaptchaActionName.GET_OOB_CODE */, sendSignInLinkToEmail$1, "EMAIL_PASSWORD_PROVIDER" /* RecaptchaAuthProvider.EMAIL_PASSWORD_PROVIDER */);
 }
 /**
  * Checks if an incoming link is a sign-in with email link suitable for {@link signInWithEmailLink}.
@@ -10707,7 +10976,7 @@ async function sendSignInLinkToEmail(auth, email, actionCodeSettings) {
  */
 function isSignInWithEmailLink(auth, emailLink) {
     const actionCodeUrl = ActionCodeURL.parseLink(emailLink);
-    return (actionCodeUrl === null || actionCodeUrl === void 0 ? void 0 : actionCodeUrl.operation) === "EMAIL_SIGNIN" /* ActionCodeOperation.EMAIL_SIGNIN */;
+    return actionCodeUrl?.operation === "EMAIL_SIGNIN" /* ActionCodeOperation.EMAIL_SIGNIN */;
 }
 /**
  * Asynchronously signs in using an email and sign-in email link.
@@ -10861,7 +11130,7 @@ async function fetchSignInMethodsForEmail(auth, email) {
  * @public
  */
 async function sendEmailVerification(user, actionCodeSettings) {
-    const userInternal = index_68602d24_getModularInstance(user);
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
     const idToken = await user.getIdToken();
     const request = {
         requestType: "VERIFY_EMAIL" /* ActionCodeOperation.VERIFY_EMAIL */,
@@ -10910,7 +11179,7 @@ async function sendEmailVerification(user, actionCodeSettings) {
  * @public
  */
 async function verifyBeforeUpdateEmail(user, newEmail, actionCodeSettings) {
-    const userInternal = index_68602d24_getModularInstance(user);
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
     const idToken = await user.getIdToken();
     const request = {
         requestType: "VERIFY_AND_CHANGE_EMAIL" /* ActionCodeOperation.VERIFY_AND_CHANGE_EMAIL */,
@@ -10972,11 +11241,12 @@ async function updateProfile$1(auth, request) {
  *
  * @public
  */
-async function updateProfile(user, { displayName, photoURL: photoUrl }) {
+async function updateProfile(user, profile) {
+    const { displayName, photoURL: photoUrl } = profile;
     if (displayName === undefined && photoUrl === undefined) {
         return;
     }
-    const userInternal = index_68602d24_getModularInstance(user);
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
     const idToken = await userInternal.getIdToken();
     const profileRequest = {
         idToken,
@@ -11020,8 +11290,8 @@ async function updateProfile(user, { displayName, photoURL: photoUrl }) {
  * @public
  */
 function updateEmail(user, newEmail) {
-    const userInternal = index_68602d24_getModularInstance(user);
-    if (index_68602d24_isFirebaseServerApp(userInternal.auth.app)) {
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
+    if (index_4NFEPWkC_isFirebaseServerApp(userInternal.auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(userInternal.auth));
     }
     return updateEmailOrPassword(userInternal, newEmail, null);
@@ -11040,7 +11310,7 @@ function updateEmail(user, newEmail) {
  * @public
  */
 function updatePassword(user, newPassword) {
-    return updateEmailOrPassword(index_68602d24_getModularInstance(user), null, newPassword);
+    return updateEmailOrPassword(index_4NFEPWkC_getModularInstance(user), null, newPassword);
 }
 async function updateEmailOrPassword(user, email, password) {
     const { auth } = user;
@@ -11080,7 +11350,6 @@ async function updateEmailOrPassword(user, email, password) {
  *
  */
 function _fromIdTokenResponse(idTokenResponse) {
-    var _a, _b;
     if (!idTokenResponse) {
         return null;
     }
@@ -11090,8 +11359,8 @@ function _fromIdTokenResponse(idTokenResponse) {
         : {};
     const isNewUser = idTokenResponse.isNewUser ||
         idTokenResponse.kind === "identitytoolkit#SignupNewUserResponse" /* IdTokenResponseKind.SignupNewUser */;
-    if (!providerId && (idTokenResponse === null || idTokenResponse === void 0 ? void 0 : idTokenResponse.idToken)) {
-        const signInProvider = (_b = (_a = _parseToken(idTokenResponse.idToken)) === null || _a === void 0 ? void 0 : _a.firebase) === null || _b === void 0 ? void 0 : _b['sign_in_provider'];
+    if (!providerId && idTokenResponse?.idToken) {
+        const signInProvider = _parseToken(idTokenResponse.idToken)?.firebase?.['sign_in_provider'];
         if (signInProvider) {
             const filteredProviderId = signInProvider !== "anonymous" /* ProviderId.ANONYMOUS */ &&
                 signInProvider !== "custom" /* ProviderId.CUSTOM */
@@ -11140,7 +11409,7 @@ class FacebookAdditionalUserInfo extends GenericAdditionalUserInfo {
 }
 class GithubAdditionalUserInfo extends FederatedAdditionalUserInfoWithUsername {
     constructor(isNewUser, profile) {
-        super(isNewUser, "github.com" /* ProviderId.GITHUB */, profile, typeof (profile === null || profile === void 0 ? void 0 : profile.login) === 'string' ? profile === null || profile === void 0 ? void 0 : profile.login : null);
+        super(isNewUser, "github.com" /* ProviderId.GITHUB */, profile, typeof profile?.login === 'string' ? profile?.login : null);
     }
 }
 class GoogleAdditionalUserInfo extends GenericAdditionalUserInfo {
@@ -11216,7 +11485,7 @@ function getAdditionalUserInfo(userCredential) {
  * @public
  */
 function setPersistence(auth, persistence) {
-    return index_68602d24_getModularInstance(auth).setPersistence(persistence);
+    return index_4NFEPWkC_getModularInstance(auth).setPersistence(persistence);
 }
 /**
  * Loads the reCAPTCHA configuration into the `Auth` instance.
@@ -11333,7 +11602,7 @@ function onAuthStateChanged(auth, nextOrObserver, error, completed) {
  * @public
  */
 function useDeviceLanguage(auth) {
-    index_68602d24_getModularInstance(auth).useDeviceLanguage();
+    index_4NFEPWkC_getModularInstance(auth).useDeviceLanguage();
 }
 /**
  * Asynchronously sets the provided user as {@link Auth.currentUser} on the
@@ -11357,7 +11626,7 @@ function useDeviceLanguage(auth) {
  * @public
  */
 function updateCurrentUser(auth, user) {
-    return index_68602d24_getModularInstance(auth).updateCurrentUser(user);
+    return index_4NFEPWkC_getModularInstance(auth).updateCurrentUser(user);
 }
 /**
  * Signs out the current user.
@@ -11398,7 +11667,7 @@ function revokeAccessToken(auth, token) {
  * @public
  */
 async function deleteUser(user) {
-    return index_68602d24_getModularInstance(user).delete();
+    return index_4NFEPWkC_getModularInstance(user).delete();
 }
 
 /**
@@ -11440,12 +11709,11 @@ class MultiFactorSessionImpl {
         };
     }
     static fromJSON(obj) {
-        var _a, _b;
-        if (obj === null || obj === void 0 ? void 0 : obj.multiFactorSession) {
-            if ((_a = obj.multiFactorSession) === null || _a === void 0 ? void 0 : _a.pendingCredential) {
+        if (obj?.multiFactorSession) {
+            if (obj.multiFactorSession?.pendingCredential) {
                 return MultiFactorSessionImpl._fromMfaPendingCredential(obj.multiFactorSession.pendingCredential);
             }
-            else if ((_b = obj.multiFactorSession) === null || _b === void 0 ? void 0 : _b.idToken) {
+            else if (obj.multiFactorSession?.idToken) {
                 return MultiFactorSessionImpl._fromIdtoken(obj.multiFactorSession.idToken);
             }
         }
@@ -11488,7 +11756,11 @@ class MultiFactorResolverImpl {
             delete serverResponse.mfaInfo;
             delete serverResponse.mfaPendingCredential;
             // Use in the new token & refresh token in the old response
-            const idTokenResponse = Object.assign(Object.assign({}, serverResponse), { idToken: mfaResponse.idToken, refreshToken: mfaResponse.refreshToken });
+            const idTokenResponse = {
+                ...serverResponse,
+                idToken: mfaResponse.idToken,
+                refreshToken: mfaResponse.refreshToken
+            };
             // TODO: we should collapse this switch statement into UserCredentialImpl._forOperation and have it support the SIGN_IN case
             switch (error.operationType) {
                 case "signIn" /* OperationType.SIGN_IN */:
@@ -11519,11 +11791,10 @@ class MultiFactorResolverImpl {
  * @public
  */
 function getMultiFactorResolver(auth, error) {
-    var _a;
-    const authModular = index_68602d24_getModularInstance(auth);
+    const authModular = index_4NFEPWkC_getModularInstance(auth);
     const errorInternal = error;
     _assert(error.customData.operationType, authModular, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
-    _assert((_a = errorInternal.customData._serverResponse) === null || _a === void 0 ? void 0 : _a.mfaPendingCredential, authModular, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
+    _assert(errorInternal.customData._serverResponse?.mfaPendingCredential, authModular, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
     return MultiFactorResolverImpl._fromError(authModular, errorInternal);
 }
 
@@ -11621,7 +11892,7 @@ const multiFactorUserCache = new WeakMap();
  * @public
  */
 function multiFactor(user) {
-    const userModular = index_68602d24_getModularInstance(user);
+    const userModular = index_4NFEPWkC_getModularInstance(user);
     if (!multiFactorUserCache.has(userModular)) {
         multiFactorUserCache.set(userModular, MultiFactorUserImpl._fromUser(userModular));
     }
@@ -11663,7 +11934,7 @@ class BrowserPersistenceClass {
             this.storage.removeItem(STORAGE_AVAILABLE_KEY);
             return Promise.resolve(true);
         }
-        catch (_a) {
+        catch {
             return Promise.resolve(false);
         }
     }
@@ -11868,6 +12139,148 @@ const browserLocalPersistence = BrowserLocalPersistence;
 
 /**
  * @license
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const POLLING_INTERVAL_MS = 1000;
+// Pull a cookie value from document.cookie
+function getDocumentCookie(name) {
+    const escapedName = name.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+    const matcher = RegExp(`${escapedName}=([^;]+)`);
+    return document.cookie.match(matcher)?.[1] ?? null;
+}
+// Produce a sanitized cookie name from the persistence key
+function getCookieName(key) {
+    // __HOST- doesn't work in localhost https://issues.chromium.org/issues/40196122 but it has
+    // desirable security properties, so lets use a different cookie name while in dev-mode.
+    // Already checked isSecureContext in _isAvailable, so if it's http we're hitting local.
+    const isDevMode = window.location.protocol === 'http:';
+    return `${isDevMode ? '__dev_' : '__HOST-'}FIREBASE_${key.split(':')[3]}`;
+}
+class CookiePersistence {
+    constructor() {
+        this.type = "COOKIE" /* PersistenceType.COOKIE */;
+        this.listenerUnsubscribes = new Map();
+    }
+    // used to get the URL to the backend to proxy to
+    _getFinalTarget(originalUrl) {
+        if (typeof window === undefined) {
+            return originalUrl;
+        }
+        const url = new URL(`${window.location.origin}/__cookies__`);
+        url.searchParams.set('finalTarget', originalUrl);
+        return url;
+    }
+    // To be a usable persistence method in a chain browserCookiePersistence ensures that
+    // prerequisites have been met, namely that we're in a secureContext, navigator and document are
+    // available and cookies are enabled. Not all UAs support these method, so fallback accordingly.
+    async _isAvailable() {
+        if (typeof isSecureContext === 'boolean' && !isSecureContext) {
+            return false;
+        }
+        if (typeof navigator === 'undefined' || typeof document === 'undefined') {
+            return false;
+        }
+        return navigator.cookieEnabled ?? true;
+    }
+    // Set should be a noop as we expect middleware to handle this
+    async _set(_key, _value) {
+        return;
+    }
+    // Attempt to get the cookie from cookieStore, fallback to document.cookie
+    async _get(key) {
+        if (!this._isAvailable()) {
+            return null;
+        }
+        const name = getCookieName(key);
+        if (window.cookieStore) {
+            const cookie = await window.cookieStore.get(name);
+            return cookie?.value;
+        }
+        return getDocumentCookie(name);
+    }
+    // Log out by overriding the idToken with a sentinel value of ""
+    async _remove(key) {
+        if (!this._isAvailable()) {
+            return;
+        }
+        // To make sure we don't hit signout over and over again, only do this operation if we need to
+        // with the logout sentinel value of "" this can cause race conditions. Unnecessary set-cookie
+        // headers will reduce CDN hit rates too.
+        const existingValue = await this._get(key);
+        if (!existingValue) {
+            return;
+        }
+        const name = getCookieName(key);
+        document.cookie = `${name}=;Max-Age=34560000;Partitioned;Secure;SameSite=Strict;Path=/;Priority=High`;
+        await fetch(`/__cookies__`, { method: 'DELETE' }).catch(() => undefined);
+    }
+    // Listen for cookie changes, both cookieStore and fallback to polling document.cookie
+    _addListener(key, listener) {
+        if (!this._isAvailable()) {
+            return;
+        }
+        const name = getCookieName(key);
+        if (window.cookieStore) {
+            const cb = ((event) => {
+                const changedCookie = event.changed.find(change => change.name === name);
+                if (changedCookie) {
+                    listener(changedCookie.value);
+                }
+                const deletedCookie = event.deleted.find(change => change.name === name);
+                if (deletedCookie) {
+                    listener(null);
+                }
+            });
+            const unsubscribe = () => window.cookieStore.removeEventListener('change', cb);
+            this.listenerUnsubscribes.set(listener, unsubscribe);
+            return window.cookieStore.addEventListener('change', cb);
+        }
+        let lastValue = getDocumentCookie(name);
+        const interval = setInterval(() => {
+            const currentValue = getDocumentCookie(name);
+            if (currentValue !== lastValue) {
+                listener(currentValue);
+                lastValue = currentValue;
+            }
+        }, POLLING_INTERVAL_MS);
+        const unsubscribe = () => clearInterval(interval);
+        this.listenerUnsubscribes.set(listener, unsubscribe);
+    }
+    _removeListener(_key, listener) {
+        const unsubscribe = this.listenerUnsubscribes.get(listener);
+        if (!unsubscribe) {
+            return;
+        }
+        unsubscribe();
+        this.listenerUnsubscribes.delete(listener);
+    }
+}
+CookiePersistence.type = 'COOKIE';
+/**
+ * An implementation of {@link Persistence} of type `COOKIE`, for use on the client side in
+ * applications leveraging hybrid rendering and middleware.
+ *
+ * @remarks This persistence method requires companion middleware to function, such as that provided
+ * by {@link https://firebaseopensource.com/projects/firebaseextended/reactfire/ | ReactFire} for
+ * NextJS.
+ * @beta
+ */
+const browserCookiePersistence = (/* unused pure expression or super */ null && (CookiePersistence));
+
+/**
+ * @license
  * Copyright 2020 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -12004,7 +12417,7 @@ class Receiver {
         const messageEvent = event;
         const { eventId, eventType, data } = messageEvent.data;
         const handlers = this.handlersMap[eventType];
-        if (!(handlers === null || handlers === void 0 ? void 0 : handlers.size)) {
+        if (!handlers?.size) {
             return;
         }
         messageEvent.ports[0].postMessage({
@@ -12240,20 +12653,19 @@ function _isWorker() {
         typeof _window()['importScripts'] === 'function');
 }
 async function _getActiveServiceWorker() {
-    if (!(navigator === null || navigator === void 0 ? void 0 : navigator.serviceWorker)) {
+    if (!navigator?.serviceWorker) {
         return null;
     }
     try {
         const registration = await navigator.serviceWorker.ready;
         return registration.active;
     }
-    catch (_a) {
+    catch {
         return null;
     }
 }
 function _getServiceWorkerController() {
-    var _a;
-    return ((_a = navigator === null || navigator === void 0 ? void 0 : navigator.serviceWorker) === null || _a === void 0 ? void 0 : _a.controller) || null;
+    return navigator?.serviceWorker?.controller || null;
 }
 function _getWorkerGlobalScope() {
     return _isWorker() ? self : null;
@@ -12275,8 +12687,8 @@ function _getWorkerGlobalScope() {
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-const index_68602d24_DB_NAME = 'firebaseLocalStorageDb';
-const index_68602d24_DB_VERSION = 1;
+const index_4NFEPWkC_DB_NAME = 'firebaseLocalStorageDb';
+const index_4NFEPWkC_DB_VERSION = 1;
 const DB_OBJECTSTORE_NAME = 'firebaseLocalStorage';
 const DB_DATA_KEYPATH = 'fbase_key';
 /**
@@ -12306,11 +12718,11 @@ function getObjectStore(db, isReadWrite) {
         .objectStore(DB_OBJECTSTORE_NAME);
 }
 function _deleteDatabase() {
-    const request = indexedDB.deleteDatabase(index_68602d24_DB_NAME);
+    const request = indexedDB.deleteDatabase(index_4NFEPWkC_DB_NAME);
     return new DBPromise(request).toPromise();
 }
 function _openDatabase() {
-    const request = indexedDB.open(index_68602d24_DB_NAME, index_68602d24_DB_VERSION);
+    const request = indexedDB.open(index_4NFEPWkC_DB_NAME, index_4NFEPWkC_DB_VERSION);
     return new Promise((resolve, reject) => {
         request.addEventListener('error', () => {
             reject(request.error);
@@ -12361,29 +12773,64 @@ function _deleteObject(db, key) {
 const _POLLING_INTERVAL_MS = 800;
 const _TRANSACTION_RETRY_COUNT = 3;
 class IndexedDBLocalPersistence {
+    registerLifecycleListeners() {
+        if (typeof window !== 'undefined' &&
+            typeof window.addEventListener === 'function') {
+            window.addEventListener('pagehide', this.onPageHide);
+            window.addEventListener('pageshow', this.onPageShow);
+        }
+    }
+    unregisterLifecycleListeners() {
+        if (typeof window !== 'undefined' &&
+            typeof window.removeEventListener === 'function') {
+            window.removeEventListener('pagehide', this.onPageHide);
+            window.removeEventListener('pageshow', this.onPageShow);
+        }
+    }
     constructor() {
         this.type = "LOCAL" /* PersistenceType.LOCAL */;
+        this.dbPromise = null;
         this._shouldAllowMigration = true;
         this.listeners = {};
         this.localCache = {};
         // setTimeout return value is platform specific
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.pollTimer = null;
+        this.isClosing = false;
         this.pendingWrites = 0;
         this.receiver = null;
         this.sender = null;
         this.serviceWorkerReceiverAvailable = false;
         this.activeServiceWorker = null;
+        this.onPageHide = () => {
+            this.isClosing = true;
+            this.stopPolling();
+            if (this.dbPromise) {
+                this.dbPromise.then(db => db.close()).catch(() => { });
+                this.dbPromise = null;
+            }
+        };
+        this.onPageShow = () => {
+            if (this.isClosing) {
+                this.isClosing = false;
+                if (Object.keys(this.listeners).length > 0) {
+                    this.startPolling();
+                }
+            }
+        };
         // Fire & forget the service worker registration as it may never resolve
         this._workerInitializationPromise =
             this.initializeServiceWorkerMessaging().then(() => { }, () => { });
     }
     async _openDb() {
-        if (this.db) {
-            return this.db;
+        if (this.dbPromise) {
+            return this.dbPromise;
         }
-        this.db = await _openDatabase();
-        return this.db;
+        this.dbPromise = _openDatabase();
+        this.dbPromise.catch(() => {
+            this.dbPromise = null;
+        });
+        return this.dbPromise;
     }
     async _withRetries(op) {
         let numAttempts = 0;
@@ -12396,9 +12843,14 @@ class IndexedDBLocalPersistence {
                 if (numAttempts++ > _TRANSACTION_RETRY_COUNT) {
                     throw e;
                 }
-                if (this.db) {
-                    this.db.close();
-                    this.db = undefined;
+                if (this.dbPromise) {
+                    const dbPromise = this.dbPromise;
+                    this.dbPromise = null;
+                    try {
+                        const db = await dbPromise;
+                        db.close();
+                    }
+                    catch { }
                 }
                 // TODO: consider adding exponential backoff
             }
@@ -12436,7 +12888,6 @@ class IndexedDBLocalPersistence {
      * may not resolve.
      */
     async initializeSender() {
-        var _a, _b;
         // Check to see if there's an active service worker.
         this.activeServiceWorker = await _getActiveServiceWorker();
         if (!this.activeServiceWorker) {
@@ -12448,8 +12899,8 @@ class IndexedDBLocalPersistence {
         if (!results) {
             return;
         }
-        if (((_a = results[0]) === null || _a === void 0 ? void 0 : _a.fulfilled) &&
-            ((_b = results[0]) === null || _b === void 0 ? void 0 : _b.value.includes("keyChanged" /* _EventType.KEY_CHANGED */))) {
+        if (results[0]?.fulfilled &&
+            results[0]?.value.includes("keyChanged" /* _EventType.KEY_CHANGED */)) {
             this.serviceWorkerReceiverAvailable = true;
         }
     }
@@ -12475,7 +12926,7 @@ class IndexedDBLocalPersistence {
                 ? 800 /* _TimeoutDuration.LONG_ACK */
                 : 50 /* _TimeoutDuration.ACK */);
         }
-        catch (_a) {
+        catch {
             // This is a best effort approach. Ignore errors.
         }
     }
@@ -12484,12 +12935,13 @@ class IndexedDBLocalPersistence {
             if (!indexedDB) {
                 return false;
             }
-            const db = await _openDatabase();
-            await _putObject(db, STORAGE_AVAILABLE_KEY, '1');
-            await _deleteObject(db, STORAGE_AVAILABLE_KEY);
+            await this._withRetries(async (db) => {
+                await _putObject(db, STORAGE_AVAILABLE_KEY, '1');
+                await _deleteObject(db, STORAGE_AVAILABLE_KEY);
+            });
             return true;
         }
-        catch (_a) { }
+        catch { }
         return false;
     }
     async _withPendingWrite(write) {
@@ -12521,37 +12973,51 @@ class IndexedDBLocalPersistence {
         });
     }
     async _poll() {
-        // TODO: check if we need to fallback if getAll is not supported
-        const result = await this._withRetries((db) => {
-            const getAllRequest = getObjectStore(db, false).getAll();
-            return new DBPromise(getAllRequest).toPromise();
-        });
-        if (!result) {
+        if (this.isClosing) {
             return [];
         }
-        // If we have pending writes in progress abort, we'll get picked up on the next poll
-        if (this.pendingWrites !== 0) {
-            return [];
-        }
-        const keys = [];
-        const keysInResult = new Set();
-        if (result.length !== 0) {
-            for (const { fbase_key: key, value } of result) {
-                keysInResult.add(key);
-                if (JSON.stringify(this.localCache[key]) !== JSON.stringify(value)) {
-                    this.notifyListeners(key, value);
-                    keys.push(key);
+        try {
+            // TODO: check if we need to fallback if getAll is not supported
+            const result = await this._withRetries((db) => {
+                const getAllRequest = getObjectStore(db, false).getAll();
+                return new DBPromise(getAllRequest).toPromise();
+            });
+            if (this.isClosing) {
+                return [];
+            }
+            if (!result) {
+                return [];
+            }
+            // If we have pending writes in progress abort, we'll get picked up on the next poll
+            if (this.pendingWrites !== 0) {
+                return [];
+            }
+            const keys = [];
+            const keysInResult = new Set();
+            if (result.length !== 0) {
+                for (const { fbase_key: key, value } of result) {
+                    keysInResult.add(key);
+                    if (JSON.stringify(this.localCache[key]) !== JSON.stringify(value)) {
+                        this.notifyListeners(key, value);
+                        keys.push(key);
+                    }
                 }
             }
-        }
-        for (const localKey of Object.keys(this.localCache)) {
-            if (this.localCache[localKey] && !keysInResult.has(localKey)) {
-                // Deleted
-                this.notifyListeners(localKey, null);
-                keys.push(localKey);
+            for (const localKey of Object.keys(this.localCache)) {
+                if (this.localCache[localKey] && !keysInResult.has(localKey)) {
+                    // Deleted
+                    this.notifyListeners(localKey, null);
+                    keys.push(localKey);
+                }
             }
+            return keys;
         }
-        return keys;
+        catch (e) {
+            if (!this.isClosing) {
+                _logWarn(`Firebase Auth cross-tab polling failed with error: ${e}`);
+            }
+            return [];
+        }
     }
     notifyListeners(key, newValue) {
         this.localCache[key] = newValue;
@@ -12575,6 +13041,7 @@ class IndexedDBLocalPersistence {
     _addListener(key, listener) {
         if (Object.keys(this.listeners).length === 0) {
             this.startPolling();
+            this.registerLifecycleListeners();
         }
         if (!this.listeners[key]) {
             this.listeners[key] = new Set();
@@ -12592,6 +13059,7 @@ class IndexedDBLocalPersistence {
         }
         if (Object.keys(this.listeners).length === 0) {
             this.stopPolling();
+            this.unregisterLifecycleListeners();
         }
     }
 }
@@ -12646,134 +13114,6 @@ function finalizeSignInTotpMfa(auth, request) {
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-const _SOLVE_TIME_MS = 500;
-const _EXPIRATION_TIME_MS = 60000;
-const _WIDGET_ID_START = 1000000000000;
-class MockReCaptcha {
-    constructor(auth) {
-        this.auth = auth;
-        this.counter = _WIDGET_ID_START;
-        this._widgets = new Map();
-    }
-    render(container, parameters) {
-        const id = this.counter;
-        this._widgets.set(id, new MockWidget(container, this.auth.name, parameters || {}));
-        this.counter++;
-        return id;
-    }
-    reset(optWidgetId) {
-        var _a;
-        const id = optWidgetId || _WIDGET_ID_START;
-        void ((_a = this._widgets.get(id)) === null || _a === void 0 ? void 0 : _a.delete());
-        this._widgets.delete(id);
-    }
-    getResponse(optWidgetId) {
-        var _a;
-        const id = optWidgetId || _WIDGET_ID_START;
-        return ((_a = this._widgets.get(id)) === null || _a === void 0 ? void 0 : _a.getResponse()) || '';
-    }
-    async execute(optWidgetId) {
-        var _a;
-        const id = optWidgetId || _WIDGET_ID_START;
-        void ((_a = this._widgets.get(id)) === null || _a === void 0 ? void 0 : _a.execute());
-        return '';
-    }
-}
-class MockWidget {
-    constructor(containerOrId, appName, params) {
-        this.params = params;
-        this.timerId = null;
-        this.deleted = false;
-        this.responseToken = null;
-        this.clickHandler = () => {
-            this.execute();
-        };
-        const container = typeof containerOrId === 'string'
-            ? document.getElementById(containerOrId)
-            : containerOrId;
-        _assert(container, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */, { appName });
-        this.container = container;
-        this.isVisible = this.params.size !== 'invisible';
-        if (this.isVisible) {
-            this.execute();
-        }
-        else {
-            this.container.addEventListener('click', this.clickHandler);
-        }
-    }
-    getResponse() {
-        this.checkIfDeleted();
-        return this.responseToken;
-    }
-    delete() {
-        this.checkIfDeleted();
-        this.deleted = true;
-        if (this.timerId) {
-            clearTimeout(this.timerId);
-            this.timerId = null;
-        }
-        this.container.removeEventListener('click', this.clickHandler);
-    }
-    execute() {
-        this.checkIfDeleted();
-        if (this.timerId) {
-            return;
-        }
-        this.timerId = window.setTimeout(() => {
-            this.responseToken = generateRandomAlphaNumericString(50);
-            const { callback, 'expired-callback': expiredCallback } = this.params;
-            if (callback) {
-                try {
-                    callback(this.responseToken);
-                }
-                catch (e) { }
-            }
-            this.timerId = window.setTimeout(() => {
-                this.timerId = null;
-                this.responseToken = null;
-                if (expiredCallback) {
-                    try {
-                        expiredCallback();
-                    }
-                    catch (e) { }
-                }
-                if (this.isVisible) {
-                    this.execute();
-                }
-            }, _EXPIRATION_TIME_MS);
-        }, _SOLVE_TIME_MS);
-    }
-    checkIfDeleted() {
-        if (this.deleted) {
-            throw new Error('reCAPTCHA mock was already deleted!');
-        }
-    }
-}
-function generateRandomAlphaNumericString(len) {
-    const chars = [];
-    const allowedChars = '1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    for (let i = 0; i < len; i++) {
-        chars.push(allowedChars.charAt(Math.floor(Math.random() * allowedChars.length)));
-    }
-    return chars.join('');
-}
-
-/**
- * @license
- * Copyright 2020 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 // ReCaptcha will load using the same callback, so the callback function needs
 // to be kept around
 const _JSLOAD_CALLBACK = _generateCallbackName('rcb');
@@ -12783,7 +13123,6 @@ const NETWORK_TIMEOUT_DELAY = new Delay(30000, 60000);
  */
 class ReCaptchaLoaderImpl {
     constructor() {
-        var _a;
         this.hostLanguage = '';
         this.counter = 0;
         /**
@@ -12791,7 +13130,7 @@ class ReCaptchaLoaderImpl {
          * version of the ReCAPTCHA script was loaded by someone else (e.g. App Check) but
          * `window.grecaptcha.render()` will not. Another load will add it.
          */
-        this.librarySeparatelyLoaded = !!((_a = _window().grecaptcha) === null || _a === void 0 ? void 0 : _a.render);
+        this.librarySeparatelyLoaded = !!_window().grecaptcha?.render;
     }
     load(auth, hl = '') {
         _assert(isHostLanguageValid(hl), auth, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
@@ -12821,7 +13160,7 @@ class ReCaptchaLoaderImpl {
                 this.hostLanguage = hl;
                 resolve(recaptcha);
             };
-            const url = `${_recaptchaV2ScriptUrl()}?${index_68602d24_querystring({
+            const url = `${_recaptchaV2ScriptUrl()}?${index_4NFEPWkC_querystring({
                 onload: _JSLOAD_CALLBACK,
                 render: 'explicit',
                 hl
@@ -12836,7 +13175,6 @@ class ReCaptchaLoaderImpl {
         this.counter--;
     }
     shouldResolveImmediately(hl) {
-        var _a;
         // We can resolve immediately if:
         //   • grecaptcha is already defined AND (
         //     1. the requested language codes are the same OR
@@ -12844,7 +13182,7 @@ class ReCaptchaLoaderImpl {
         //     3. the library was already loaded by the app
         // In cases (2) and (3), we _can't_ reload as it would break the recaptchas
         // that are already in the page
-        return (!!((_a = _window().grecaptcha) === null || _a === void 0 ? void 0 : _a.render) &&
+        return (!!_window().grecaptcha?.render &&
             (hl === this.hostLanguage ||
                 this.counter > 0 ||
                 this.librarySeparatelyLoaded));
@@ -12909,7 +13247,9 @@ class RecaptchaVerifier {
      * configure this upon rendering. For an invisible reCAPTCHA, a size key must have the value
      * 'invisible'.
      */
-    constructor(authExtern, containerOrId, parameters = Object.assign({}, DEFAULT_PARAMS)) {
+    constructor(authExtern, containerOrId, parameters = {
+        ...DEFAULT_PARAMS
+    }) {
         this.parameters = parameters;
         /**
          * The application verifier type.
@@ -13112,11 +13452,14 @@ class ConfirmationResultImpl {
  * provides the code sent to their phone, call {@link ConfirmationResult.confirm}
  * with the code to sign the user in.
  *
- * For abuse prevention, this method also requires a {@link ApplicationVerifier}.
- * This SDK includes a reCAPTCHA-based implementation, {@link RecaptchaVerifier}.
+ * For abuse prevention, this method requires a {@link ApplicationVerifier}.
+ * This SDK includes an implementation based on reCAPTCHA v2, {@link RecaptchaVerifier}.
  * This function can work on other platforms that do not support the
  * {@link RecaptchaVerifier} (like React Native), but you need to use a
  * third-party {@link ApplicationVerifier} implementation.
+ *
+ * If you've enabled project-level reCAPTCHA Enterprise bot protection in
+ * Enforce mode, you can omit the {@link ApplicationVerifier}.
  *
  * This method does not work in a Node.js environment or with {@link Auth} instances created with a
  * {@link @firebase/app#FirebaseServerApp}.
@@ -13137,11 +13480,11 @@ class ConfirmationResultImpl {
  * @public
  */
 async function signInWithPhoneNumber(auth, phoneNumber, appVerifier) {
-    if (index_68602d24_isFirebaseServerApp(auth.app)) {
+    if (index_4NFEPWkC_isFirebaseServerApp(auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(auth));
     }
     const authInternal = _castAuth(auth);
-    const verificationId = await _verifyPhoneNumber(authInternal, phoneNumber, index_68602d24_getModularInstance(appVerifier));
+    const verificationId = await _verifyPhoneNumber(authInternal, phoneNumber, index_4NFEPWkC_getModularInstance(appVerifier));
     return new ConfirmationResultImpl(verificationId, cred => signInWithCredential(authInternal, cred));
 }
 /**
@@ -13157,9 +13500,9 @@ async function signInWithPhoneNumber(auth, phoneNumber, appVerifier) {
  * @public
  */
 async function linkWithPhoneNumber(user, phoneNumber, appVerifier) {
-    const userInternal = index_68602d24_getModularInstance(user);
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
     await _assertLinkedStatus(false, userInternal, "phone" /* ProviderId.PHONE */);
-    const verificationId = await _verifyPhoneNumber(userInternal.auth, phoneNumber, index_68602d24_getModularInstance(appVerifier));
+    const verificationId = await _verifyPhoneNumber(userInternal.auth, phoneNumber, index_4NFEPWkC_getModularInstance(appVerifier));
     return new ConfirmationResultImpl(verificationId, cred => linkWithCredential(userInternal, cred));
 }
 /**
@@ -13178,11 +13521,11 @@ async function linkWithPhoneNumber(user, phoneNumber, appVerifier) {
  * @public
  */
 async function reauthenticateWithPhoneNumber(user, phoneNumber, appVerifier) {
-    const userInternal = index_68602d24_getModularInstance(user);
-    if (index_68602d24_isFirebaseServerApp(userInternal.auth.app)) {
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
+    if (index_4NFEPWkC_isFirebaseServerApp(userInternal.auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(userInternal.auth));
     }
-    const verificationId = await _verifyPhoneNumber(userInternal.auth, phoneNumber, index_68602d24_getModularInstance(appVerifier));
+    const verificationId = await _verifyPhoneNumber(userInternal.auth, phoneNumber, index_4NFEPWkC_getModularInstance(appVerifier));
     return new ConfirmationResultImpl(verificationId, cred => reauthenticateWithCredential(userInternal, cred));
 }
 /**
@@ -13190,11 +13533,19 @@ async function reauthenticateWithPhoneNumber(user, phoneNumber, appVerifier) {
  *
  */
 async function _verifyPhoneNumber(auth, options, verifier) {
-    var _a;
-    const recaptchaToken = await verifier.verify();
+    if (!auth._getRecaptchaConfig()) {
+        try {
+            await _initializeRecaptchaConfig(auth);
+        }
+        catch (error) {
+            // If an error occurs while fetching the config, there is no way to know the enablement state
+            // of Phone provider, so we proceed with recaptcha V2 verification.
+            // The error is likely "recaptchaKey undefined", as reCAPTCHA Enterprise is not
+            // enabled for any provider.
+            console.log('Failed to initialize reCAPTCHA Enterprise config. Triggering the reCAPTCHA v2 verification.');
+        }
+    }
     try {
-        _assert(typeof recaptchaToken === 'string', auth, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
-        _assert(verifier.type === RECAPTCHA_VERIFIER_TYPE, auth, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
         let phoneInfoOptions;
         if (typeof options === 'string') {
             phoneInfoOptions = {
@@ -13208,40 +13559,79 @@ async function _verifyPhoneNumber(auth, options, verifier) {
             const session = phoneInfoOptions.session;
             if ('phoneNumber' in phoneInfoOptions) {
                 _assert(session.type === "enroll" /* MultiFactorSessionType.ENROLL */, auth, "internal-error" /* AuthErrorCode.INTERNAL_ERROR */);
-                const response = await startEnrollPhoneMfa(auth, {
+                const startPhoneMfaEnrollmentRequest = {
                     idToken: session.credential,
                     phoneEnrollmentInfo: {
                         phoneNumber: phoneInfoOptions.phoneNumber,
-                        recaptchaToken
+                        clientType: "CLIENT_TYPE_WEB" /* RecaptchaClientType.WEB */
                     }
+                };
+                const startEnrollPhoneMfaActionCallback = async (authInstance, request) => {
+                    // If reCAPTCHA Enterprise token is FAKE_TOKEN, fetch reCAPTCHA v2 token and inject into request.
+                    if (request.phoneEnrollmentInfo.captchaResponse === FAKE_TOKEN) {
+                        _assert(verifier?.type === RECAPTCHA_VERIFIER_TYPE, authInstance, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
+                        const requestWithRecaptchaV2 = await injectRecaptchaV2Token(authInstance, request, verifier);
+                        return startEnrollPhoneMfa(authInstance, requestWithRecaptchaV2);
+                    }
+                    return startEnrollPhoneMfa(authInstance, request);
+                };
+                const startPhoneMfaEnrollmentResponse = handleRecaptchaFlow(auth, startPhoneMfaEnrollmentRequest, "mfaSmsEnrollment" /* RecaptchaActionName.MFA_SMS_ENROLLMENT */, startEnrollPhoneMfaActionCallback, "PHONE_PROVIDER" /* RecaptchaAuthProvider.PHONE_PROVIDER */);
+                const response = await startPhoneMfaEnrollmentResponse.catch(error => {
+                    return Promise.reject(error);
                 });
                 return response.phoneSessionInfo.sessionInfo;
             }
             else {
                 _assert(session.type === "signin" /* MultiFactorSessionType.SIGN_IN */, auth, "internal-error" /* AuthErrorCode.INTERNAL_ERROR */);
-                const mfaEnrollmentId = ((_a = phoneInfoOptions.multiFactorHint) === null || _a === void 0 ? void 0 : _a.uid) ||
+                const mfaEnrollmentId = phoneInfoOptions.multiFactorHint?.uid ||
                     phoneInfoOptions.multiFactorUid;
                 _assert(mfaEnrollmentId, auth, "missing-multi-factor-info" /* AuthErrorCode.MISSING_MFA_INFO */);
-                const response = await startSignInPhoneMfa(auth, {
+                const startPhoneMfaSignInRequest = {
                     mfaPendingCredential: session.credential,
                     mfaEnrollmentId,
                     phoneSignInInfo: {
-                        recaptchaToken
+                        clientType: "CLIENT_TYPE_WEB" /* RecaptchaClientType.WEB */
                     }
+                };
+                const startSignInPhoneMfaActionCallback = async (authInstance, request) => {
+                    // If reCAPTCHA Enterprise token is FAKE_TOKEN, fetch reCAPTCHA v2 token and inject into request.
+                    if (request.phoneSignInInfo.captchaResponse === FAKE_TOKEN) {
+                        _assert(verifier?.type === RECAPTCHA_VERIFIER_TYPE, authInstance, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
+                        const requestWithRecaptchaV2 = await injectRecaptchaV2Token(authInstance, request, verifier);
+                        return startSignInPhoneMfa(authInstance, requestWithRecaptchaV2);
+                    }
+                    return startSignInPhoneMfa(authInstance, request);
+                };
+                const startPhoneMfaSignInResponse = handleRecaptchaFlow(auth, startPhoneMfaSignInRequest, "mfaSmsSignIn" /* RecaptchaActionName.MFA_SMS_SIGNIN */, startSignInPhoneMfaActionCallback, "PHONE_PROVIDER" /* RecaptchaAuthProvider.PHONE_PROVIDER */);
+                const response = await startPhoneMfaSignInResponse.catch(error => {
+                    return Promise.reject(error);
                 });
                 return response.phoneResponseInfo.sessionInfo;
             }
         }
         else {
-            const { sessionInfo } = await sendPhoneVerificationCode(auth, {
+            const sendPhoneVerificationCodeRequest = {
                 phoneNumber: phoneInfoOptions.phoneNumber,
-                recaptchaToken
+                clientType: "CLIENT_TYPE_WEB" /* RecaptchaClientType.WEB */
+            };
+            const sendPhoneVerificationCodeActionCallback = async (authInstance, request) => {
+                // If reCAPTCHA Enterprise token is FAKE_TOKEN, fetch reCAPTCHA v2 token and inject into request.
+                if (request.captchaResponse === FAKE_TOKEN) {
+                    _assert(verifier?.type === RECAPTCHA_VERIFIER_TYPE, authInstance, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
+                    const requestWithRecaptchaV2 = await injectRecaptchaV2Token(authInstance, request, verifier);
+                    return sendPhoneVerificationCode(authInstance, requestWithRecaptchaV2);
+                }
+                return sendPhoneVerificationCode(authInstance, request);
+            };
+            const sendPhoneVerificationCodeResponse = handleRecaptchaFlow(auth, sendPhoneVerificationCodeRequest, "sendVerificationCode" /* RecaptchaActionName.SEND_VERIFICATION_CODE */, sendPhoneVerificationCodeActionCallback, "PHONE_PROVIDER" /* RecaptchaAuthProvider.PHONE_PROVIDER */);
+            const response = await sendPhoneVerificationCodeResponse.catch(error => {
+                return Promise.reject(error);
             });
-            return sessionInfo;
+            return response.sessionInfo;
         }
     }
     finally {
-        verifier._reset();
+        verifier?._reset();
     }
 }
 /**
@@ -13268,11 +13658,54 @@ async function _verifyPhoneNumber(auth, options, verifier) {
  * @public
  */
 async function updatePhoneNumber(user, credential) {
-    const userInternal = index_68602d24_getModularInstance(user);
-    if (index_68602d24_isFirebaseServerApp(userInternal.auth.app)) {
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
+    if (index_4NFEPWkC_isFirebaseServerApp(userInternal.auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(userInternal.auth));
     }
     await _link$1(userInternal, credential);
+}
+// Helper function that fetches and injects a reCAPTCHA v2 token into the request.
+async function injectRecaptchaV2Token(auth, request, recaptchaV2Verifier) {
+    _assert(recaptchaV2Verifier.type === RECAPTCHA_VERIFIER_TYPE, auth, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
+    const recaptchaV2Token = await recaptchaV2Verifier.verify();
+    _assert(typeof recaptchaV2Token === 'string', auth, "argument-error" /* AuthErrorCode.ARGUMENT_ERROR */);
+    const newRequest = { ...request };
+    if ('phoneEnrollmentInfo' in newRequest) {
+        const phoneNumber = newRequest.phoneEnrollmentInfo.phoneNumber;
+        const captchaResponse = newRequest.phoneEnrollmentInfo.captchaResponse;
+        const clientType = newRequest
+            .phoneEnrollmentInfo.clientType;
+        const recaptchaVersion = newRequest.phoneEnrollmentInfo.recaptchaVersion;
+        Object.assign(newRequest, {
+            'phoneEnrollmentInfo': {
+                phoneNumber,
+                recaptchaToken: recaptchaV2Token,
+                captchaResponse,
+                clientType,
+                recaptchaVersion
+            }
+        });
+        return newRequest;
+    }
+    else if ('phoneSignInInfo' in newRequest) {
+        const captchaResponse = newRequest.phoneSignInInfo.captchaResponse;
+        const clientType = newRequest
+            .phoneSignInInfo.clientType;
+        const recaptchaVersion = newRequest.phoneSignInInfo.recaptchaVersion;
+        Object.assign(newRequest, {
+            'phoneSignInInfo': {
+                recaptchaToken: recaptchaV2Token,
+                captchaResponse,
+                clientType,
+                recaptchaVersion
+            }
+        });
+        return newRequest;
+    }
+    else {
+        Object.assign(newRequest, { 'recaptchaToken': recaptchaV2Token });
+        return newRequest;
+    }
 }
 
 /**
@@ -13344,12 +13777,14 @@ class PhoneAuthProvider {
      *
      * @param phoneInfoOptions - The user's {@link PhoneInfoOptions}. The phone number should be in
      * E.164 format (e.g. +16505550101).
-     * @param applicationVerifier - For abuse prevention, this method also requires a
-     * {@link ApplicationVerifier}. This SDK includes a reCAPTCHA-based implementation,
-     * {@link RecaptchaVerifier}.
+     * @param applicationVerifier - An {@link ApplicationVerifier}, which prevents
+     * requests from unauthorized clients. This SDK includes an implementation
+     * based on reCAPTCHA v2, {@link RecaptchaVerifier}. If you've enabled
+     * reCAPTCHA Enterprise bot protection in Enforce mode, this parameter is
+     * optional; in all other configurations, the parameter is required.
      *
      * @returns A Promise for a verification ID that can be passed to
-     * {@link PhoneAuthProvider.credential} to identify this flow..
+     * {@link PhoneAuthProvider.credential} to identify this flow.
      */
     verifyPhoneNumber(phoneOptions, applicationVerifier) {
         return _verifyPhoneNumber(this.auth, phoneOptions, getModularInstance(applicationVerifier));
@@ -13683,7 +14118,7 @@ const _POLL_WINDOW_CLOSE_TIMEOUT = new Delay(2000, 10000);
  * @public
  */
 async function signInWithPopup(auth, provider, resolver) {
-    if (index_68602d24_isFirebaseServerApp(auth.app)) {
+    if (index_4NFEPWkC_isFirebaseServerApp(auth.app)) {
         return Promise.reject(_createError(auth, "operation-not-supported-in-this-environment" /* AuthErrorCode.OPERATION_NOT_SUPPORTED */));
     }
     const authInternal = _castAuth(auth);
@@ -13721,8 +14156,8 @@ async function signInWithPopup(auth, provider, resolver) {
  * @public
  */
 async function reauthenticateWithPopup(user, provider, resolver) {
-    const userInternal = index_68602d24_getModularInstance(user);
-    if (index_68602d24_isFirebaseServerApp(userInternal.auth.app)) {
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
+    if (index_4NFEPWkC_isFirebaseServerApp(userInternal.auth.app)) {
         return Promise.reject(_createError(userInternal.auth, "operation-not-supported-in-this-environment" /* AuthErrorCode.OPERATION_NOT_SUPPORTED */));
     }
     _assertInstanceOf(userInternal.auth, provider, FederatedAuthProvider);
@@ -13756,7 +14191,7 @@ async function reauthenticateWithPopup(user, provider, resolver) {
  * @public
  */
 async function linkWithPopup(user, provider, resolver) {
-    const userInternal = index_68602d24_getModularInstance(user);
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
     _assertInstanceOf(userInternal.auth, provider, FederatedAuthProvider);
     const resolverInternal = _withDefaultResolver(userInternal.auth, resolver);
     const action = new PopupOperation(userInternal.auth, "linkViaPopup" /* AuthEventType.LINK_VIA_POPUP */, provider, resolverInternal, userInternal);
@@ -13808,8 +14243,7 @@ class PopupOperation extends AbstractPopupRedirectOperation {
         this.pollUserCancellation();
     }
     get eventId() {
-        var _a;
-        return ((_a = this.authWindow) === null || _a === void 0 ? void 0 : _a.associatedEvent) || null;
+        return this.authWindow?.associatedEvent || null;
     }
     cancel() {
         this.reject(_createError(this.auth, "cancelled-popup-request" /* AuthErrorCode.EXPIRED_POPUP_REQUEST */));
@@ -13827,8 +14261,7 @@ class PopupOperation extends AbstractPopupRedirectOperation {
     }
     pollUserCancellation() {
         const poll = () => {
-            var _a, _b;
-            if ((_b = (_a = this.authWindow) === null || _a === void 0 ? void 0 : _a.window) === null || _b === void 0 ? void 0 : _b.closed) {
+            if (this.authWindow?.window?.closed) {
                 // Make sure that there is sufficient time for whatever action to
                 // complete. The window could have closed but the sign in network
                 // call could still be in flight. This is specifically true for
@@ -14068,9 +14501,9 @@ function reauthenticateWithRedirect(user, provider, resolver) {
     return _reauthenticateWithRedirect(user, provider, resolver);
 }
 async function _reauthenticateWithRedirect(user, provider, resolver) {
-    const userInternal = index_68602d24_getModularInstance(user);
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
     _assertInstanceOf(userInternal.auth, provider, FederatedAuthProvider);
-    if (index_68602d24_isFirebaseServerApp(userInternal.auth.app)) {
+    if (index_4NFEPWkC_isFirebaseServerApp(userInternal.auth.app)) {
         return Promise.reject(_serverAppCurrentUserOperationNotSupportedError(userInternal.auth));
     }
     // Wait for auth initialization to complete, this will process pending redirects and clear the
@@ -14118,7 +14551,7 @@ function linkWithRedirect(user, provider, resolver) {
     return _linkWithRedirect(user, provider, resolver);
 }
 async function _linkWithRedirect(user, provider, resolver) {
-    const userInternal = index_68602d24_getModularInstance(user);
+    const userInternal = index_4NFEPWkC_getModularInstance(user);
     _assertInstanceOf(userInternal.auth, provider, FederatedAuthProvider);
     // Wait for auth initialization to complete, this will process pending redirects and clear the
     // PENDING_REDIRECT_KEY in persistence. This should be completed before starting a new
@@ -14266,9 +14699,8 @@ class AuthEventManager {
         return handled;
     }
     sendToConsumer(event, consumer) {
-        var _a;
         if (event.error && !isNullRedirectEvent(event)) {
-            const code = ((_a = event.error.code) === null || _a === void 0 ? void 0 : _a.split('auth/')[1]) ||
+            const code = event.error.code?.split('auth/')[1] ||
                 "internal-error" /* AuthErrorCode.INTERNAL_ERROR */;
             consumer.onError(_createError(this.auth, code));
         }
@@ -14298,7 +14730,7 @@ function eventUid(e) {
 }
 function isNullRedirectEvent({ type, error }) {
     return (type === "unknown" /* AuthEventType.UNKNOWN */ &&
-        (error === null || error === void 0 ? void 0 : error.code) === `auth/${"no-auth-event" /* AuthErrorCode.NO_AUTH_EVENT */}`);
+        error?.code === `auth/${"no-auth-event" /* AuthErrorCode.NO_AUTH_EVENT */}`);
 }
 function isRedirectEvent(event) {
     switch (event.type) {
@@ -14363,7 +14795,7 @@ async function _validateOrigin(auth) {
                 return;
             }
         }
-        catch (_a) {
+        catch {
             // Do nothing if there's a URL error; just continue searching
         }
     }
@@ -14426,7 +14858,7 @@ function resetUnloadedGapiModules() {
     // Get gapix.beacon context.
     const beacon = _window().___jsl;
     // Get current hint.
-    if (beacon === null || beacon === void 0 ? void 0 : beacon.H) {
+    if (beacon?.H) {
         // Get gapi hint.
         for (const hint of Object.keys(beacon.H)) {
             // Requested modules.
@@ -14447,7 +14879,6 @@ function resetUnloadedGapiModules() {
 }
 function loadGapi(auth) {
     return new Promise((resolve, reject) => {
-        var _a, _b, _c;
         // Function to run when gapi.load is ready.
         function loadGapiIframe() {
             // The developer may have tried to previously run gapi.load and failed.
@@ -14470,11 +14901,11 @@ function loadGapi(auth) {
                 timeout: NETWORK_TIMEOUT.get()
             });
         }
-        if ((_b = (_a = _window().gapi) === null || _a === void 0 ? void 0 : _a.iframes) === null || _b === void 0 ? void 0 : _b.Iframe) {
+        if (_window().gapi?.iframes?.Iframe) {
             // If gapi.iframes.Iframe available, resolve.
             resolve(gapi.iframes.getContext());
         }
-        else if (!!((_c = _window().gapi) === null || _c === void 0 ? void 0 : _c.load)) {
+        else if (!!_window().gapi?.load) {
             // Gapi loader ready, load gapi.iframes.
             loadGapiIframe();
         }
@@ -14544,8 +14975,8 @@ const IFRAME_ATTRIBUTES = {
 // Map from apiHost to endpoint ID for passing into iframe. In current SDK, apiHost can be set to
 // anything (not from a list of endpoints with IDs as in legacy), so this is the closest we can get.
 const EID_FROM_APIHOST = new Map([
-    ["identitytoolkit.googleapis.com" /* DefaultConfig.API_HOST */, 'p'],
-    ['staging-identitytoolkit.sandbox.googleapis.com', 's'],
+    ["identitytoolkit.googleapis.com" /* DefaultConfig.API_HOST */, 'p'], // production
+    ['staging-identitytoolkit.sandbox.googleapis.com', 's'], // staging
     ['test-identitytoolkit.sandbox.googleapis.com', 't'] // test
 ]);
 function getIframeUrl(auth) {
@@ -14647,8 +15078,13 @@ function _open(auth, url, name, width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT) 
     const top = Math.max((window.screen.availHeight - height) / 2, 0).toString();
     const left = Math.max((window.screen.availWidth - width) / 2, 0).toString();
     let target = '';
-    const options = Object.assign(Object.assign({}, BASE_POPUP_OPTIONS), { width: width.toString(), height: height.toString(), top,
-        left });
+    const options = {
+        ...BASE_POPUP_OPTIONS,
+        width: width.toString(),
+        height: height.toString(),
+        top,
+        left
+    };
     // Chrome iOS 7 and 8 is returning an undefined popup win when target is
     // specified, even though the popup is not necessarily blocked.
     const ua = getUA().toLowerCase();
@@ -14808,8 +15244,7 @@ class BrowserPopupRedirectResolver {
     // Wrapping in async even though we don't await anywhere in order
     // to make sure errors are raised as promise rejections
     async _openPopup(auth, provider, authType, eventId) {
-        var _a;
-        debugAssert((_a = this.eventManagers[auth._key()]) === null || _a === void 0 ? void 0 : _a.manager, '_initialize() not called before _openPopup()');
+        debugAssert(this.eventManagers[auth._key()]?.manager, '_initialize() not called before _openPopup()');
         const url = await _getRedirectUrl(auth, provider, authType, _getCurrentUrl(), eventId);
         return _open(auth, url, _generateEventId());
     }
@@ -14844,7 +15279,7 @@ class BrowserPopupRedirectResolver {
         const iframe = await _openIframe(auth);
         const manager = new AuthEventManager(auth);
         iframe.register('authEvent', (iframeEvent) => {
-            _assert(iframeEvent === null || iframeEvent === void 0 ? void 0 : iframeEvent.authEvent, auth, "invalid-auth-event" /* AuthErrorCode.INVALID_AUTH_EVENT */);
+            _assert(iframeEvent?.authEvent, auth, "invalid-auth-event" /* AuthErrorCode.INVALID_AUTH_EVENT */);
             // TODO: Consider splitting redirect and popup events earlier on
             const handled = manager.onEvent(iframeEvent.authEvent);
             return { status: handled ? "ACK" /* GapiOutcome.ACK */ : "ERROR" /* GapiOutcome.ERROR */ };
@@ -14856,8 +15291,7 @@ class BrowserPopupRedirectResolver {
     _isIframeWebStorageSupported(auth, cb) {
         const iframe = this.iframes[auth._key()];
         iframe.send(WEB_STORAGE_SUPPORT_KEY, { type: WEB_STORAGE_SUPPORT_KEY }, result => {
-            var _a;
-            const isSupported = (_a = result === null || result === void 0 ? void 0 : result[0]) === null || _a === void 0 ? void 0 : _a[WEB_STORAGE_SUPPORT_KEY];
+            const isSupported = result?.[0]?.[WEB_STORAGE_SUPPORT_KEY];
             if (isSupported !== undefined) {
                 cb(!!isSupported);
             }
@@ -15000,9 +15434,8 @@ class TotpMultiFactorGenerator {
      * @returns A promise to {@link TotpSecret}.
      */
     static async generateSecret(session) {
-        var _a;
         const mfaSession = session;
-        _assert(typeof ((_a = mfaSession.user) === null || _a === void 0 ? void 0 : _a.auth) !== 'undefined', "internal-error" /* AuthErrorCode.INTERNAL_ERROR */);
+        _assert(typeof mfaSession.user?.auth !== 'undefined', "internal-error" /* AuthErrorCode.INTERNAL_ERROR */);
         const response = await startEnrollTotpMfa(mfaSession.user.auth, {
             idToken: mfaSession.credential,
             totpEnrollmentInfo: {}
@@ -15086,14 +15519,13 @@ class TotpSecret {
      * @returns A QR code URL string.
      */
     generateQrCodeUrl(accountName, issuer) {
-        var _a;
         let useDefaults = false;
         if (_isEmptyString(accountName) || _isEmptyString(issuer)) {
             useDefaults = true;
         }
         if (useDefaults) {
             if (_isEmptyString(accountName)) {
-                accountName = ((_a = this.auth.currentUser) === null || _a === void 0 ? void 0 : _a.email) || 'unknownuser';
+                accountName = this.auth.currentUser?.email || 'unknownuser';
             }
             if (_isEmptyString(issuer)) {
                 issuer = this.auth.name;
@@ -15104,11 +15536,11 @@ class TotpSecret {
 }
 /** @internal */
 function _isEmptyString(input) {
-    return typeof input === 'undefined' || (input === null || input === void 0 ? void 0 : input.length) === 0;
+    return typeof input === 'undefined' || input?.length === 0;
 }
 
-var index_68602d24_name = "@firebase/auth";
-var index_68602d24_version = "1.7.9";
+var index_4NFEPWkC_name = "@firebase/auth";
+var index_4NFEPWkC_version = "1.13.6";
 
 /**
  * @license
@@ -15132,9 +15564,8 @@ class AuthInterop {
         this.internalListeners = new Map();
     }
     getUid() {
-        var _a;
         this.assertAuthConfigured();
-        return ((_a = this.auth.currentUser) === null || _a === void 0 ? void 0 : _a.uid) || null;
+        return this.auth.currentUser?.uid || null;
     }
     async getToken(forceRefresh) {
         this.assertAuthConfigured();
@@ -15151,7 +15582,7 @@ class AuthInterop {
             return;
         }
         const unsubscribe = this.auth.onIdTokenChanged(user => {
-            listener((user === null || user === void 0 ? void 0 : user.stsTokenManager.accessToken) || null);
+            listener(user?.stsTokenManager.accessToken || null);
         });
         this.internalListeners.set(listener, unsubscribe);
         this.updateProactiveRefresh();
@@ -15249,9 +15680,9 @@ function registerAuth(clientPlatform) {
         const auth = _castAuth(container.getProvider("auth" /* _ComponentName.AUTH */).getImmediate());
         return (auth => new AuthInterop(auth))(auth);
     }, "PRIVATE" /* ComponentType.PRIVATE */).setInstantiationMode("EXPLICIT" /* InstantiationMode.EXPLICIT */));
-    registerVersion(index_68602d24_name, index_68602d24_version, getVersionForPlatform(clientPlatform));
-    // BUILD_TARGET will be replaced by values like esm5, esm2017, cjs5, etc during the compilation
-    registerVersion(index_68602d24_name, index_68602d24_version, 'esm2017');
+    registerVersion(index_4NFEPWkC_name, index_4NFEPWkC_version, getVersionForPlatform(clientPlatform));
+    // BUILD_TARGET will be replaced by values like esm, cjs, etc during the compilation
+    registerVersion(index_4NFEPWkC_name, index_4NFEPWkC_version, 'esm2020');
 }
 
 /**
@@ -15281,7 +15712,7 @@ const mintCookieFactory = (url) => async (user) => {
         return;
     }
     // Specifically trip null => undefined when logged out, to delete any existing cookie
-    const idToken = idTokenResult === null || idTokenResult === void 0 ? void 0 : idTokenResult.token;
+    const idToken = idTokenResult?.token;
     if (lastPostedIdToken === idToken) {
         return;
     }
@@ -15336,8 +15767,7 @@ function getAuth(app = getApp()) {
     return auth;
 }
 function getScriptParentElement() {
-    var _a, _b;
-    return (_b = (_a = document.getElementsByTagName('head')) === null || _a === void 0 ? void 0 : _a[0]) !== null && _b !== void 0 ? _b : document;
+    return document.getElementsByTagName('head')?.[0] ?? document;
 }
 _setExternalJSProvider({
     loadJS(url) {
@@ -15363,10 +15793,9 @@ _setExternalJSProvider({
 registerAuth("Browser" /* ClientPlatform.BROWSER */);
 
 
-//# sourceMappingURL=index-68602d24.js.map
+//# sourceMappingURL=index-4NFEPWkC.js.map
 
-;// ../../node_modules/firebase/node_modules/@firebase/auth/dist/esm2017/index.js
-
+;// ./node_modules/@firebase/auth/dist/esm/index.js
 
 
 
@@ -15374,28 +15803,28 @@ registerAuth("Browser" /* ClientPlatform.BROWSER */);
 
 //# sourceMappingURL=index.js.map
 
-;// ../../node_modules/firebase/auth/dist/esm/index.esm.js
+;// ./node_modules/firebase/auth/dist/esm/index.esm.js
 
 //# sourceMappingURL=index.esm.js.map
 
-;// ../../node_modules/@firebase/database/dist/index.esm2017.js
-/* unused harmony import specifier */ var dist_index_esm2017_ComponentContainer;
-/* unused harmony import specifier */ var index_esm2017_Provider;
-/* unused harmony import specifier */ var index_esm2017_Component;
-/* unused harmony import specifier */ var index_esm2017_errorPrefix;
-/* unused harmony import specifier */ var index_esm2017_isEmpty;
-/* unused harmony import specifier */ var index_esm2017_contains;
-/* unused harmony import specifier */ var index_esm2017_safeGet;
-/* unused harmony import specifier */ var index_esm2017_assert;
-/* unused harmony import specifier */ var index_esm2017_Deferred;
-/* unused harmony import specifier */ var index_esm2017_getModularInstance;
+;// ./node_modules/@firebase/database/dist/index.esm.js
+/* unused harmony import specifier */ var dist_index_esm_ComponentContainer;
+/* unused harmony import specifier */ var index_esm_Provider;
+/* unused harmony import specifier */ var index_esm_Component;
+/* unused harmony import specifier */ var index_esm_errorPrefix;
+/* unused harmony import specifier */ var index_esm_isEmpty;
+/* unused harmony import specifier */ var index_esm_contains;
+/* unused harmony import specifier */ var index_esm_safeGet;
+/* unused harmony import specifier */ var index_esm_assert;
+/* unused harmony import specifier */ var index_esm_Deferred;
+/* unused harmony import specifier */ var index_esm_getModularInstance;
 
 
 
 
 
-const dist_index_esm2017_name = "@firebase/database";
-const index_esm2017_version = "1.0.8";
+const dist_index_esm_name = "@firebase/database";
+const dist_index_esm_version = "1.1.5";
 
 /**
  * @license
@@ -15414,13 +15843,13 @@ const index_esm2017_version = "1.0.8";
  * limitations under the License.
  */
 /** The semver (www.semver.org) version of the SDK. */
-let index_esm2017_SDK_VERSION = '';
+let index_esm_SDK_VERSION = '';
 /**
  * SDK_VERSION should be set before any database instance is created
  * @internal
  */
 function setSDKVersion(version) {
-    index_esm2017_SDK_VERSION = version;
+    index_esm_SDK_VERSION = version;
 }
 
 /**
@@ -15600,7 +16029,7 @@ const SessionStorage = createStoragefor('sessionStorage');
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-const index_esm2017_logClient = new Logger('@firebase/database');
+const index_esm_logClient = new Logger('@firebase/database');
 /**
  * Returns a locally-unique ID (generated by just incrementing up from 0 each time its called).
  */
@@ -15646,7 +16075,7 @@ const buildLogMessage_ = function (...varArgs) {
 /**
  * Use this for all debug messages in Firebase.
  */
-let index_esm2017_logger = null;
+let index_esm_logger = null;
 /**
  * Flag to check for log availability on first log message
  */
@@ -15659,30 +16088,30 @@ let firstLog_ = true;
 const enableLogging$1 = function (logger_, persistent) {
     assert(!persistent || logger_ === true || logger_ === false, "Can't turn on custom loggers persistently.");
     if (logger_ === true) {
-        index_esm2017_logClient.logLevel = LogLevel.VERBOSE;
-        index_esm2017_logger = index_esm2017_logClient.log.bind(index_esm2017_logClient);
+        index_esm_logClient.logLevel = LogLevel.VERBOSE;
+        index_esm_logger = index_esm_logClient.log.bind(index_esm_logClient);
         if (persistent) {
             SessionStorage.set('logging_enabled', true);
         }
     }
     else if (typeof logger_ === 'function') {
-        index_esm2017_logger = logger_;
+        index_esm_logger = logger_;
     }
     else {
-        index_esm2017_logger = null;
+        index_esm_logger = null;
         SessionStorage.remove('logging_enabled');
     }
 };
 const log = function (...varArgs) {
     if (firstLog_ === true) {
         firstLog_ = false;
-        if (index_esm2017_logger === null && SessionStorage.get('logging_enabled') === true) {
+        if (index_esm_logger === null && SessionStorage.get('logging_enabled') === true) {
             enableLogging$1(true);
         }
     }
-    if (index_esm2017_logger) {
+    if (index_esm_logger) {
         const message = buildLogMessage_.apply(null, varArgs);
-        index_esm2017_logger(message);
+        index_esm_logger(message);
     }
 };
 const logWrapper = function (prefix) {
@@ -15692,16 +16121,16 @@ const logWrapper = function (prefix) {
 };
 const error = function (...varArgs) {
     const message = 'FIREBASE INTERNAL ERROR: ' + buildLogMessage_(...varArgs);
-    index_esm2017_logClient.error(message);
+    index_esm_logClient.error(message);
 };
 const fatal = function (...varArgs) {
     const message = `FIREBASE FATAL ERROR: ${buildLogMessage_(...varArgs)}`;
-    index_esm2017_logClient.error(message);
+    index_esm_logClient.error(message);
     throw new Error(message);
 };
 const warn = function (...varArgs) {
     const message = 'FIREBASE WARNING: ' + buildLogMessage_(...varArgs);
-    index_esm2017_logClient.warn(message);
+    index_esm_logClient.warn(message);
 };
 /**
  * Logs a warning if the containing page uses https. Called when a call to new Firebase
@@ -16102,15 +16531,24 @@ const setTimeoutNonBlocking = function (fn, time) {
  * Abstraction around AppCheck's token fetching capabilities.
  */
 class AppCheckTokenProvider {
-    constructor(appName_, appCheckProvider) {
-        this.appName_ = appName_;
+    constructor(app, appCheckProvider) {
         this.appCheckProvider = appCheckProvider;
-        this.appCheck = appCheckProvider === null || appCheckProvider === void 0 ? void 0 : appCheckProvider.getImmediate({ optional: true });
+        this.appName = app.name;
+        if (_isFirebaseServerApp(app) && app.settings.appCheckToken) {
+            this.serverAppAppCheckToken = app.settings.appCheckToken;
+        }
+        this.appCheck = appCheckProvider?.getImmediate({ optional: true });
         if (!this.appCheck) {
-            appCheckProvider === null || appCheckProvider === void 0 ? void 0 : appCheckProvider.get().then(appCheck => (this.appCheck = appCheck));
+            appCheckProvider?.get().then(appCheck => (this.appCheck = appCheck));
         }
     }
     getToken(forceRefresh) {
+        if (this.serverAppAppCheckToken) {
+            if (forceRefresh) {
+                throw new Error('Attempted reuse of `FirebaseServerApp.appCheckToken` after previous usage failed.');
+            }
+            return Promise.resolve({ token: this.serverAppAppCheckToken });
+        }
         if (!this.appCheck) {
             return new Promise((resolve, reject) => {
                 // Support delayed initialization of FirebaseAppCheck. This allows our
@@ -16130,11 +16568,12 @@ class AppCheckTokenProvider {
         return this.appCheck.getToken(forceRefresh);
     }
     addTokenChangeListener(listener) {
-        var _a;
-        (_a = this.appCheckProvider) === null || _a === void 0 ? void 0 : _a.get().then(appCheck => appCheck.addTokenListener(listener));
+        this.appCheckProvider
+            ?.get()
+            .then(appCheck => appCheck.addTokenListener(listener));
     }
     notifyForInvalidToken() {
-        warn(`Provided AppCheck credentials for the app named "${this.appName_}" ` +
+        warn(`Provided AppCheck credentials for the app named "${this.appName}" ` +
             'are invalid. This usually indicates your app was not initialized correctly.');
     }
 }
@@ -16320,7 +16759,7 @@ class RepoInfo {
      * @param nodeAdmin - Whether this instance uses Admin SDK credentials
      * @param persistenceKey - Override the default session persistence storage key
      */
-    constructor(host, secure, namespace, webSocketOnly, nodeAdmin = false, persistenceKey = '', includeNamespaceInQueryParams = false, isUsingEmulator = false) {
+    constructor(host, secure, namespace, webSocketOnly, nodeAdmin = false, persistenceKey = '', includeNamespaceInQueryParams = false, isUsingEmulator = false, emulatorOptions = null) {
         this.secure = secure;
         this.namespace = namespace;
         this.webSocketOnly = webSocketOnly;
@@ -16328,6 +16767,7 @@ class RepoInfo {
         this.persistenceKey = persistenceKey;
         this.includeNamespaceInQueryParams = includeNamespaceInQueryParams;
         this.isUsingEmulator = isUsingEmulator;
+        this.emulatorOptions = emulatorOptions;
         this._host = host.toLowerCase();
         this._domain = this._host.substr(this._host.indexOf('.') + 1);
         this.internalHost =
@@ -17255,7 +17695,7 @@ class WebSocketConnection {
                 // UA Format: Firebase/<wire_protocol>/<sdk_version>/<platform>/<device>
                 options = {
                     headers: {
-                        'User-Agent': `Firebase/${PROTOCOL_VERSION}/${index_esm2017_SDK_VERSION}/${process.platform}/${device}`,
+                        'User-Agent': `Firebase/${PROTOCOL_VERSION}/${index_esm_SDK_VERSION}/${process.platform}/${device}`,
                         'X-Firebase-GMPID': this.applicationId || ''
                     }
                 };
@@ -17524,12 +17964,6 @@ WebSocketConnection.healthyTimeout = 30000;
  * they are available.
  */
 class TransportManager {
-    /**
-     * @param repoInfo - Metadata around the namespace we're connecting to
-     */
-    constructor(repoInfo) {
-        this.initTransports_(repoInfo);
-    }
     static get ALL_TRANSPORTS() {
         return [BrowserPollConnection, WebSocketConnection];
     }
@@ -17539,6 +17973,12 @@ class TransportManager {
      */
     static get IS_TRANSPORT_INITIALIZED() {
         return this.globalTransportInitialized_;
+    }
+    /**
+     * @param repoInfo - Metadata around the namespace we're connecting to
+     */
+    constructor(repoInfo) {
+        this.initTransports_(repoInfo);
     }
     initTransports_(repoInfo) {
         const isWebSocketsAvailable = WebSocketConnection && WebSocketConnection['isAvailable']();
@@ -17857,7 +18297,9 @@ class Connection {
         if (MESSAGE_DATA in controlData) {
             const payload = controlData[MESSAGE_DATA];
             if (cmd === SERVER_HELLO) {
-                const handshakePayload = Object.assign({}, payload);
+                const handshakePayload = {
+                    ...payload
+                };
                 if (this.repoInfo_.isUsingEmulator) {
                     // Upon connecting, the emulator will pass the hostname that it's aware of, but we prefer the user's set hostname via `connectDatabaseEmulator` over what the emulator passes.
                     handshakePayload.h = this.repoInfo_.host;
@@ -18189,6 +18631,9 @@ class EventEmitter {
  * we definitely cannot reach the internet.
  */
 class OnlineMonitor extends EventEmitter {
+    static getInstance() {
+        return new OnlineMonitor();
+    }
     constructor() {
         super(['online']);
         this.online_ = true;
@@ -18212,9 +18657,6 @@ class OnlineMonitor extends EventEmitter {
                 }
             }, false);
         }
-    }
-    static getInstance() {
-        return new OnlineMonitor();
     }
     getInitialEvent(eventType) {
         assert(eventType === 'online', 'Unknown event type: ' + eventType);
@@ -18520,6 +18962,9 @@ function validationPathToErrorString(validationPath) {
  * limitations under the License.
  */
 class VisibilityMonitor extends EventEmitter {
+    static getInstance() {
+        return new VisibilityMonitor();
+    }
     constructor() {
         super(['visible']);
         let hidden;
@@ -18558,9 +19003,6 @@ class VisibilityMonitor extends EventEmitter {
                 }
             }, false);
         }
-    }
-    static getInstance() {
-        return new VisibilityMonitor();
     }
     getInitialEvent(eventType) {
         assert(eventType === 'visible', 'Unknown event type: ' + eventType);
@@ -19123,7 +19565,7 @@ class PersistentConnection extends ServerActions {
                 }
                 this.lastConnectionEstablishedTime_ = null;
             }
-            const timeSinceLastConnectAttempt = new Date().getTime() - this.lastConnectionAttemptTime_;
+            const timeSinceLastConnectAttempt = Math.max(0, new Date().getTime() - this.lastConnectionAttemptTime_);
             let reconnectDelay = Math.max(0, this.reconnectDelay_ - timeSinceLastConnectAttempt);
             reconnectDelay = Math.random() * reconnectDelay;
             this.log_('Trying to reconnect in ' + reconnectDelay + 'ms');
@@ -19361,7 +19803,7 @@ class PersistentConnection extends ServerActions {
                 clientName = 'node';
             }
         }
-        stats['sdk.' + clientName + '.' + index_esm2017_SDK_VERSION.replace(/\./g, '-')] = 1;
+        stats['sdk.' + clientName + '.' + index_esm_SDK_VERSION.replace(/\./g, '-')] = 1;
         if (isMobileCordova()) {
             stats['framework.cordova'] = 1;
         }
@@ -20217,6 +20659,12 @@ let __childrenNodeConstructor;
  * number, or boolean) accessible via getValue().
  */
 class LeafNode {
+    static set __childrenNodeConstructor(val) {
+        __childrenNodeConstructor = val;
+    }
+    static get __childrenNodeConstructor() {
+        return __childrenNodeConstructor;
+    }
     /**
      * @param value_ - The value to store in this leaf node. The object type is
      * possible in the event of a deferred value
@@ -20228,12 +20676,6 @@ class LeafNode {
         this.lazyHash_ = null;
         assert(this.value_ !== undefined && this.value_ !== null, "LeafNode shouldn't be created with null/undefined value.");
         validatePriorityNode(this.priorityNode_);
-    }
-    static set __childrenNodeConstructor(val) {
-        __childrenNodeConstructor = val;
-    }
-    static get __childrenNodeConstructor() {
-        return __childrenNodeConstructor;
     }
     /** @inheritDoc */
     isLeafNode() {
@@ -20622,10 +21064,6 @@ const buildChildSet = function (childList, cmp, keyFn, mapSortFn) {
 let _defaultIndexMap;
 const fallbackObject = {};
 class IndexMap {
-    constructor(indexes_, indexSet_) {
-        this.indexes_ = indexes_;
-        this.indexSet_ = indexSet_;
-    }
     /**
      * The default IndexMap for nodes without a priority
      */
@@ -20635,6 +21073,10 @@ class IndexMap {
             _defaultIndexMap ||
                 new IndexMap({ '.priority': fallbackObject }, { '.priority': PRIORITY_INDEX });
         return _defaultIndexMap;
+    }
+    constructor(indexes_, indexSet_) {
+        this.indexes_ = indexes_;
+        this.indexSet_ = indexSet_;
     }
     get(indexKey) {
         const sortedMap = safeGet(this.indexes_, indexKey);
@@ -20673,9 +21115,9 @@ class IndexMap {
             newIndex = fallbackObject;
         }
         const indexName = indexDefinition.toString();
-        const newIndexSet = Object.assign({}, this.indexSet_);
+        const newIndexSet = { ...this.indexSet_ };
         newIndexSet[indexName] = indexDefinition;
-        const newIndexes = Object.assign({}, this.indexes_);
+        const newIndexes = { ...this.indexes_ };
         newIndexes[indexName] = newIndex;
         return new IndexMap(newIndexes, newIndexSet);
     }
@@ -20766,6 +21208,10 @@ let EMPTY_NODE;
  * list of children in the children property, sorted by child name.
  */
 class ChildrenNode {
+    static get EMPTY_NODE() {
+        return (EMPTY_NODE ||
+            (EMPTY_NODE = new ChildrenNode(new SortedMap(NAME_COMPARATOR), null, IndexMap.Default)));
+    }
     /**
      * @param children_ - List of children of this node..
      * @param priorityNode_ - The priority of this node (as a snapshot node).
@@ -20786,10 +21232,6 @@ class ChildrenNode {
         if (this.children_.isEmpty()) {
             assert(!this.priorityNode_ || this.priorityNode_.isEmpty(), 'An empty node cannot have a priority');
         }
-    }
-    static get EMPTY_NODE() {
-        return (EMPTY_NODE ||
-            (EMPTY_NODE = new ChildrenNode(new SortedMap(NAME_COMPARATOR), null, IndexMap.Default)));
     }
     /** @inheritDoc */
     isLeafNode() {
@@ -22146,6 +22588,18 @@ function queryParamsGetQueryObject(queryParams) {
  * persistent connection (using WebSockets or long-polling)
  */
 class ReadonlyRestClient extends ServerActions {
+    reportStats(stats) {
+        throw new Error('Method not implemented.');
+    }
+    static getListenId_(query, tag) {
+        if (tag !== undefined) {
+            return 'tag$' + tag;
+        }
+        else {
+            assert(query._queryParams.isDefault(), "should have a tag if it's not a default query.");
+            return query._path.toString();
+        }
+    }
     /**
      * @param repoInfo_ - Data about the namespace we are connecting to
      * @param onDataUpdate_ - A callback for new data from the server
@@ -22163,18 +22617,6 @@ class ReadonlyRestClient extends ServerActions {
          * that's been removed. :-/
          */
         this.listens_ = {};
-    }
-    reportStats(stats) {
-        throw new Error('Method not implemented.');
-    }
-    static getListenId_(query, tag) {
-        if (tag !== undefined) {
-            return 'tag$' + tag;
-        }
-        else {
-            assert(query._queryParams.isDefault(), "should have a tag if it's not a default query.");
-            return query._path.toString();
-        }
     }
     /** @inheritDoc */
     listen(query, currentHashFn, tag, onComplete) {
@@ -22479,7 +22921,7 @@ class StatsListener {
     }
     get() {
         const newStats = this.collection_.get();
-        const delta = Object.assign({}, newStats);
+        const delta = { ...newStats };
         if (this.last_) {
             each(this.last_, (stat, value) => {
                 delta[stat] = delta[stat] - value;
@@ -22560,13 +23002,13 @@ class StatsReporter {
  *
  * @enum
  */
-var index_esm2017_OperationType;
+var index_esm_OperationType;
 (function (OperationType) {
     OperationType[OperationType["OVERWRITE"] = 0] = "OVERWRITE";
     OperationType[OperationType["MERGE"] = 1] = "MERGE";
     OperationType[OperationType["ACK_USER_WRITE"] = 2] = "ACK_USER_WRITE";
     OperationType[OperationType["LISTEN_COMPLETE"] = 3] = "LISTEN_COMPLETE";
-})(index_esm2017_OperationType || (index_esm2017_OperationType = {}));
+})(index_esm_OperationType || (index_esm_OperationType = {}));
 function newOperationSourceUser() {
     return {
         fromUser: true,
@@ -22620,7 +23062,7 @@ class AckUserWrite {
         this.affectedTree = affectedTree;
         this.revert = revert;
         /** @inheritDoc */
-        this.type = index_esm2017_OperationType.ACK_USER_WRITE;
+        this.type = index_esm_OperationType.ACK_USER_WRITE;
         /** @inheritDoc */
         this.source = newOperationSourceUser();
     }
@@ -22662,7 +23104,7 @@ class ListenComplete {
         this.source = source;
         this.path = path;
         /** @inheritDoc */
-        this.type = index_esm2017_OperationType.LISTEN_COMPLETE;
+        this.type = index_esm_OperationType.LISTEN_COMPLETE;
     }
     operationForChild(childName) {
         if (pathIsEmpty(this.path)) {
@@ -22696,7 +23138,7 @@ class Overwrite {
         this.path = path;
         this.snap = snap;
         /** @inheritDoc */
-        this.type = index_esm2017_OperationType.OVERWRITE;
+        this.type = index_esm_OperationType.OVERWRITE;
     }
     operationForChild(childName) {
         if (pathIsEmpty(this.path)) {
@@ -22733,7 +23175,7 @@ class Merge {
         this.path = path;
         this.children = children;
         /** @inheritDoc */
-        this.type = index_esm2017_OperationType.MERGE;
+        this.type = index_esm_OperationType.MERGE;
     }
     operationForChild(childName) {
         if (pathIsEmpty(this.path)) {
@@ -22975,16 +23417,16 @@ const EmptyChildren = () => {
  * A tree with immutable elements.
  */
 class ImmutableTree {
-    constructor(value, children = EmptyChildren()) {
-        this.value = value;
-        this.children = children;
-    }
     static fromObject(obj) {
         let tree = new ImmutableTree(null);
         each(obj, (childPath, childSnap) => {
             tree = tree.set(new Path(childPath), childSnap);
         });
         return tree;
+    }
+    constructor(value, children = EmptyChildren()) {
+        this.value = value;
+        this.children = children;
     }
     /**
      * True if the value is empty and there are no children
@@ -24090,7 +24532,7 @@ function viewProcessorAssertIndexed(viewProcessor, viewCache) {
 function viewProcessorApplyOperation(viewProcessor, oldViewCache, operation, writesCache, completeCache) {
     const accumulator = new ChildChangeAccumulator();
     let newViewCache, filterServerNode;
-    if (operation.type === index_esm2017_OperationType.OVERWRITE) {
+    if (operation.type === index_esm_OperationType.OVERWRITE) {
         const overwrite = operation;
         if (overwrite.source.fromUser) {
             newViewCache = viewProcessorApplyUserOverwrite(viewProcessor, oldViewCache, overwrite.path, overwrite.snap, writesCache, completeCache, accumulator);
@@ -24106,7 +24548,7 @@ function viewProcessorApplyOperation(viewProcessor, oldViewCache, operation, wri
             newViewCache = viewProcessorApplyServerOverwrite(viewProcessor, oldViewCache, overwrite.path, overwrite.snap, writesCache, completeCache, filterServerNode, accumulator);
         }
     }
-    else if (operation.type === index_esm2017_OperationType.MERGE) {
+    else if (operation.type === index_esm_OperationType.MERGE) {
         const merge = operation;
         if (merge.source.fromUser) {
             newViewCache = viewProcessorApplyUserMerge(viewProcessor, oldViewCache, merge.path, merge.children, writesCache, completeCache, accumulator);
@@ -24119,7 +24561,7 @@ function viewProcessorApplyOperation(viewProcessor, oldViewCache, operation, wri
             newViewCache = viewProcessorApplyServerMerge(viewProcessor, oldViewCache, merge.path, merge.children, writesCache, completeCache, filterServerNode, accumulator);
         }
     }
-    else if (operation.type === index_esm2017_OperationType.ACK_USER_WRITE) {
+    else if (operation.type === index_esm_OperationType.ACK_USER_WRITE) {
         const ackUserWrite = operation;
         if (!ackUserWrite.revert) {
             newViewCache = viewProcessorAckUserWrite(viewProcessor, oldViewCache, ackUserWrite.path, ackUserWrite.affectedTree, writesCache, completeCache, accumulator);
@@ -24128,7 +24570,7 @@ function viewProcessorApplyOperation(viewProcessor, oldViewCache, operation, wri
             newViewCache = viewProcessorRevertUserWrite(viewProcessor, oldViewCache, ackUserWrite.path, writesCache, completeCache, accumulator);
         }
     }
-    else if (operation.type === index_esm2017_OperationType.LISTEN_COMPLETE) {
+    else if (operation.type === index_esm_OperationType.LISTEN_COMPLETE) {
         newViewCache = viewProcessorListenComplete(viewProcessor, oldViewCache, operation.path, writesCache, accumulator);
     }
     else {
@@ -24603,7 +25045,7 @@ function viewRemoveEventRegistration(view, eventRegistration, cancelError) {
  * Applies the given Operation, updates our cache, and returns the appropriate events.
  */
 function viewApplyOperation(view, operation, writesCache, completeServerCache) {
-    if (operation.type === index_esm2017_OperationType.MERGE &&
+    if (operation.type === index_esm_OperationType.MERGE &&
         operation.source.queryId !== null) {
         assert(viewCacheGetCompleteServerSnap(view.viewCache_), 'We should always have a full cache before handling merges');
         assert(viewCacheGetCompleteEventSnap(view.viewCache_), 'Missing event cache, even though we have a server cache');
@@ -25731,15 +26173,12 @@ function treeForEachChild(tree, action) {
  *   parent.
  */
 function treeForEachDescendant(tree, action, includeSelf, childrenFirst) {
-    if (includeSelf && !childrenFirst) {
+    if (includeSelf && true) {
         action(tree);
     }
     treeForEachChild(tree, child => {
-        treeForEachDescendant(child, action, true, childrenFirst);
+        treeForEachDescendant(child, action, true);
     });
-    if (includeSelf && childrenFirst) {
-        action(tree);
-    }
 }
 /**
  * Calls action on each ancestor node.
@@ -25750,7 +26189,7 @@ function treeForEachDescendant(tree, action, includeSelf, childrenFirst) {
  * @returns true if the action callback returned true.
  */
 function treeForEachAncestor(tree, action, includeSelf) {
-    let node = includeSelf ? tree : tree.parent;
+    let node = tree.parent;
     while (node !== null) {
         if (action(node)) {
             return true;
@@ -25825,7 +26264,7 @@ const INVALID_PATH_REGEX_ = /[\[\].#$\u0000-\u001F\u007F]/;
  * Maximum number of characters to allow in leaf value
  */
 const MAX_LEAF_SIZE_ = 10 * 1024 * 1024;
-const index_esm2017_isValidKey = function (key) {
+const index_esm_isValidKey = function (key) {
     return (typeof key === 'string' && key.length !== 0 && !INVALID_KEY_REGEX_.test(key));
 };
 const isValidPathString = function (pathString) {
@@ -25904,7 +26343,7 @@ const validateFirebaseData = function (errorPrefix, data, path_) {
             }
             else if (key !== '.priority' && key !== '.sv') {
                 hasActualChild = true;
-                if (!index_esm2017_isValidKey(key)) {
+                if (!index_esm_isValidKey(key)) {
                     throw new Error(errorPrefix +
                         ' contains an invalid key (' +
                         key +
@@ -25936,7 +26375,7 @@ const validateFirebaseMergePaths = function (errorPrefix, mergePaths) {
         const keys = pathSlice(curPath);
         for (let j = 0; j < keys.length; j++) {
             if (keys[j] === '.priority' && j === keys.length - 1) ;
-            else if (!index_esm2017_isValidKey(keys[j])) {
+            else if (!index_esm_isValidKey(keys[j])) {
                 throw new Error(errorPrefix +
                     'contains an invalid key (' +
                     keys[j] +
@@ -25969,9 +26408,6 @@ const validateFirebaseMergePaths = function (errorPrefix, mergePaths) {
  * must be an object - e.g. for firebase.update()).
  */
 const validateFirebaseMergeDataArg = function (fnName, data, path, optional) {
-    if (optional && data === undefined) {
-        return;
-    }
     const errorPrefix$1 = errorPrefix(fnName, 'values');
     if (!(data && typeof data === 'object') || Array.isArray(data)) {
         throw new Error(errorPrefix$1 + ' must be an object containing the children to replace.');
@@ -25994,11 +26430,8 @@ const validateFirebaseMergeDataArg = function (fnName, data, path, optional) {
     validateFirebaseMergePaths(errorPrefix$1, mergePaths);
 };
 const validatePriority = function (fnName, priority, optional) {
-    if (optional && priority === undefined) {
-        return;
-    }
     if (isInvalidJSONNumber(priority)) {
-        throw new Error(index_esm2017_errorPrefix(fnName, 'priority') +
+        throw new Error(index_esm_errorPrefix(fnName, 'priority') +
             'is ' +
             priority.toString() +
             ', but must be a valid Firebase priority (a string, finite number, ' +
@@ -26006,16 +26439,16 @@ const validatePriority = function (fnName, priority, optional) {
     }
     // Special case to allow importing data with a .sv.
     if (!isValidPriority(priority)) {
-        throw new Error(index_esm2017_errorPrefix(fnName, 'priority') +
+        throw new Error(index_esm_errorPrefix(fnName, 'priority') +
             'must be a valid Firebase priority ' +
             '(a string, finite number, server value, or null).');
     }
 };
 const validateKey = function (fnName, argumentName, key, optional) {
-    if (optional && key === undefined) {
+    if (key === undefined) {
         return;
     }
-    if (!index_esm2017_isValidKey(key)) {
+    if (!index_esm_isValidKey(key)) {
         throw new Error(errorPrefix(fnName, argumentName) +
             'was an invalid key = "' +
             key +
@@ -26058,7 +26491,7 @@ const validateUrl = function (fnName, parsedUrl) {
     const pathString = parsedUrl.path.toString();
     if (!(typeof parsedUrl.repoInfo.host === 'string') ||
         parsedUrl.repoInfo.host.length === 0 ||
-        (!index_esm2017_isValidKey(parsedUrl.repoInfo.namespace) &&
+        (!index_esm_isValidKey(parsedUrl.repoInfo.namespace) &&
             parsedUrl.repoInfo.host.split(':')[0] !== 'localhost') ||
         (pathString.length !== 0 && !isValidRootPathString(pathString))) {
         throw new Error(errorPrefix(fnName, 'url') +
@@ -26184,7 +26617,7 @@ function eventListRaise(eventList) {
         if (eventData !== null) {
             eventList.events[i] = null;
             const eventFn = eventData.getEventRunner();
-            if (index_esm2017_logger) {
+            if (index_esm_logger) {
                 log('event: ' + eventData.toString());
             }
             exceptionGuard(eventFn);
@@ -26561,7 +26994,7 @@ function repoOnDisconnectSetWithPriority(repo, path, value, priority, onComplete
     });
 }
 function repoOnDisconnectUpdate(repo, path, childrenToMerge, onComplete) {
-    if (index_esm2017_isEmpty(childrenToMerge)) {
+    if (index_esm_isEmpty(childrenToMerge)) {
         log("onDisconnect().update() called with empty data.  Don't do anything.");
         repoCallOnCompleteCallback(repo, onComplete, 'ok', undefined);
         return;
@@ -26699,10 +27132,10 @@ function repoStartTransaction(repo, path, transactionUpdate, onComplete, unwatch
         let priorityForNode;
         if (typeof newVal === 'object' &&
             newVal !== null &&
-            index_esm2017_contains(newVal, '.priority')) {
+            index_esm_contains(newVal, '.priority')) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            priorityForNode = index_esm2017_safeGet(newVal, '.priority');
-            index_esm2017_assert(isValidPriority(priorityForNode), 'Invalid priority returned by transaction. ' +
+            priorityForNode = index_esm_safeGet(newVal, '.priority');
+            index_esm_assert(isValidPriority(priorityForNode), 'Invalid priority returned by transaction. ' +
                 'Priority must be a valid string, finite number, server value, or null.');
         }
         else {
@@ -27489,7 +27922,7 @@ class OnDisconnect {
      * @returns Resolves when synchronization to the server is complete.
      */
     cancel() {
-        const deferred = new index_esm2017_Deferred();
+        const deferred = new index_esm_Deferred();
         repoOnDisconnectCancel(this._repo, this._path, deferred.wrapCallback(() => { }));
         return deferred.promise;
     }
@@ -27501,7 +27934,7 @@ class OnDisconnect {
      */
     remove() {
         validateWritablePath('OnDisconnect.remove', this._path);
-        const deferred = new index_esm2017_Deferred();
+        const deferred = new index_esm_Deferred();
         repoOnDisconnectSet(this._repo, this._path, null, deferred.wrapCallback(() => { }));
         return deferred.promise;
     }
@@ -27527,7 +27960,7 @@ class OnDisconnect {
     set(value) {
         validateWritablePath('OnDisconnect.set', this._path);
         validateFirebaseDataArg('OnDisconnect.set', value, this._path, false);
-        const deferred = new index_esm2017_Deferred();
+        const deferred = new index_esm_Deferred();
         repoOnDisconnectSet(this._repo, this._path, value, deferred.wrapCallback(() => { }));
         return deferred.promise;
     }
@@ -27544,8 +27977,8 @@ class OnDisconnect {
     setWithPriority(value, priority) {
         validateWritablePath('OnDisconnect.setWithPriority', this._path);
         validateFirebaseDataArg('OnDisconnect.setWithPriority', value, this._path, false);
-        validatePriority('OnDisconnect.setWithPriority', priority, false);
-        const deferred = new index_esm2017_Deferred();
+        validatePriority('OnDisconnect.setWithPriority', priority);
+        const deferred = new index_esm_Deferred();
         repoOnDisconnectSetWithPriority(this._repo, this._path, value, priority, deferred.wrapCallback(() => { }));
         return deferred.promise;
     }
@@ -27567,8 +28000,8 @@ class OnDisconnect {
      */
     update(values) {
         validateWritablePath('OnDisconnect.update', this._path);
-        validateFirebaseMergeDataArg('OnDisconnect.update', values, this._path, false);
-        const deferred = new index_esm2017_Deferred();
+        validateFirebaseMergeDataArg('OnDisconnect.update', values, this._path);
+        const deferred = new index_esm_Deferred();
         repoOnDisconnectUpdate(this._repo, this._path, values, deferred.wrapCallback(() => { }));
         return deferred.promise;
     }
@@ -27950,7 +28383,7 @@ function ref(db, path) {
  *   Firebase URL.
  */
 function refFromURL(db, url) {
-    db = index_esm2017_getModularInstance(db);
+    db = index_esm_getModularInstance(db);
     db._checkNotDeleted('refFromURL');
     const parsedURL = parseRepoInfo(url, db._repo.repoInfo_.nodeAdmin);
     validateUrl('refFromURL', parsedURL);
@@ -27996,7 +28429,7 @@ function child(parent, path) {
  * @param ref - The reference to add OnDisconnect triggers for.
  */
 function onDisconnect(ref) {
-    ref = index_esm2017_getModularInstance(ref);
+    ref = index_esm_getModularInstance(ref);
     return new OnDisconnect(ref._repo, ref._path);
 }
 /**
@@ -28116,10 +28549,10 @@ function set(ref, value) {
  * @returns Resolves when write to server is complete.
  */
 function setPriority(ref, priority) {
-    ref = index_esm2017_getModularInstance(ref);
+    ref = index_esm_getModularInstance(ref);
     validateWritablePath('setPriority', ref._path);
-    validatePriority('setPriority', priority, false);
-    const deferred = new index_esm2017_Deferred();
+    validatePriority('setPriority', priority);
+    const deferred = new index_esm_Deferred();
     repoSetWithPriority(ref._repo, pathChild(ref._path, '.priority'), priority, null, deferred.wrapCallback(() => { }));
     return deferred.promise;
 }
@@ -28141,11 +28574,11 @@ function setPriority(ref, priority) {
 function setWithPriority(ref, value, priority) {
     validateWritablePath('setWithPriority', ref._path);
     validateFirebaseDataArg('setWithPriority', value, ref._path, false);
-    validatePriority('setWithPriority', priority, false);
+    validatePriority('setWithPriority', priority);
     if (ref.key === '.length' || ref.key === '.keys') {
         throw 'setWithPriority failed: ' + ref.key + ' is a read-only object.';
     }
-    const deferred = new index_esm2017_Deferred();
+    const deferred = new index_esm_Deferred();
     repoSetWithPriority(ref._repo, ref._path, value, priority, deferred.wrapCallback(() => { }));
     return deferred.promise;
 }
@@ -28185,7 +28618,7 @@ function setWithPriority(ref, value, priority) {
  * @returns Resolves when update on server is complete.
  */
 function update(ref, values) {
-    validateFirebaseMergeDataArg('update', values, ref._path, false);
+    validateFirebaseMergeDataArg('update', values, ref._path);
     const deferred = new Deferred();
     repoUpdate(ref._repo, ref._path, values, deferred.wrapCallback(() => { }));
     return deferred.promise;
@@ -28431,7 +28864,7 @@ class QueryEndAtConstraint extends QueryConstraint {
  * value, or priority.
  */
 function endAt(value, key) {
-    validateKey('endAt', 'key', key, true);
+    validateKey('endAt', 'key', key);
     return new QueryEndAtConstraint(value, key);
 }
 class QueryEndBeforeConstraint extends QueryConstraint {
@@ -28473,7 +28906,7 @@ class QueryEndBeforeConstraint extends QueryConstraint {
  * child, value, or priority.
  */
 function endBefore(value, key) {
-    validateKey('endBefore', 'key', key, true);
+    validateKey('endBefore', 'key', key);
     return new QueryEndBeforeConstraint(value, key);
 }
 class QueryStartAtConstraint extends QueryConstraint {
@@ -28518,7 +28951,7 @@ class QueryStartAtConstraint extends QueryConstraint {
  * ordering by child, value, or priority.
  */
 function startAt(value = null, key) {
-    validateKey('startAt', 'key', key, true);
+    validateKey('startAt', 'key', key);
     return new QueryStartAtConstraint(value, key);
 }
 class QueryStartAfterConstraint extends QueryConstraint {
@@ -28559,7 +28992,7 @@ class QueryStartAfterConstraint extends QueryConstraint {
  * ordering by child, value, or priority.
  */
 function startAfter(value, key) {
-    validateKey('startAfter', 'key', key, true);
+    validateKey('startAfter', 'key', key);
     return new QueryStartAfterConstraint(value, key);
 }
 class QueryLimitToFirstConstraint extends QueryConstraint {
@@ -28804,7 +29237,7 @@ class QueryEqualToValueConstraint extends QueryConstraint {
  * child, value, or priority.
  */
 function equalTo(value, key) {
-    validateKey('equalTo', 'key', key, true);
+    validateKey('equalTo', 'key', key);
     return new QueryEqualToValueConstraint(value, key);
 }
 /**
@@ -28848,6 +29281,7 @@ syncTreeSetReferenceConstructor(ReferenceImpl);
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// eslint-disable-next-line import/no-extraneous-dependencies
 /**
  * This variable is also defined in the firebase Node.js Admin SDK. Before
  * modifying this definition, consult the definition in:
@@ -28868,10 +29302,13 @@ let useRestClient = false;
 /**
  * Update an existing `Repo` in place to point to a new host/port.
  */
-function repoManagerApplyEmulatorSettings(repo, host, port, tokenProvider) {
-    repo.repoInfo_ = new RepoInfo(`${host}:${port}`, 
-    /* secure= */ false, repo.repoInfo_.namespace, repo.repoInfo_.webSocketOnly, repo.repoInfo_.nodeAdmin, repo.repoInfo_.persistenceKey, repo.repoInfo_.includeNamespaceInQueryParams, 
-    /*isUsingEmulator=*/ true);
+function repoManagerApplyEmulatorSettings(repo, hostAndPort, emulatorOptions, tokenProvider) {
+    const portIndex = hostAndPort.lastIndexOf(':');
+    const host = hostAndPort.substring(0, portIndex);
+    const useSsl = isCloudWorkstation(host);
+    repo.repoInfo_ = new RepoInfo(hostAndPort, 
+    /* secure= */ useSsl, repo.repoInfo_.namespace, repo.repoInfo_.webSocketOnly, repo.repoInfo_.nodeAdmin, repo.repoInfo_.persistenceKey, repo.repoInfo_.includeNamespaceInQueryParams, 
+    /*isUsingEmulator=*/ true, emulatorOptions);
     if (tokenProvider) {
         repo.authTokenProvider_ = tokenProvider;
     }
@@ -28914,7 +29351,7 @@ function repoManagerDatabaseFromApp(app, authProvider, appCheckProvider, url, no
         fatal('Database URL must point to the root of a Firebase Database ' +
             '(not including a child path).');
     }
-    const repo = repoManagerCreateRepo(repoInfo, app, authTokenProvider, new AppCheckTokenProvider(app.name, appCheckProvider));
+    const repo = repoManagerCreateRepo(repoInfo, app, authTokenProvider, new AppCheckTokenProvider(app, appCheckProvider));
     return new Database(repo, app);
 }
 /**
@@ -29056,10 +29493,17 @@ function getDatabase(app = getApp(), url) {
 function connectDatabaseEmulator(db, host, port, options = {}) {
     db = getModularInstance(db);
     db._checkNotDeleted('useEmulator');
-    if (db._instanceStarted) {
-        fatal('Cannot call useEmulator() after instance has already been initialized.');
-    }
+    const hostAndPort = `${host}:${port}`;
     const repo = db._repoInternal;
+    if (db._instanceStarted) {
+        // If the instance has already been started, then silenty fail if this function is called again
+        // with the same parameters. If the parameters differ then assert.
+        if (hostAndPort === db._repoInternal.repoInfo_.host &&
+            deepEqual(options, repo.repoInfo_.emulatorOptions)) {
+            return;
+        }
+        fatal('connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started.');
+    }
     let tokenProvider = undefined;
     if (repo.repoInfo_.nodeAdmin) {
         if (options.mockUserToken) {
@@ -29073,8 +29517,12 @@ function connectDatabaseEmulator(db, host, port, options = {}) {
             : createMockUserToken(options.mockUserToken, db.app.options.projectId);
         tokenProvider = new EmulatorTokenProvider(token);
     }
+    // Workaround to get cookies in Firebase Studio
+    if (isCloudWorkstation(host)) {
+        void pingServer(host);
+    }
     // Modify the repo to apply emulator settings
-    repoManagerApplyEmulatorSettings(repo, host, port, tokenProvider);
+    repoManagerApplyEmulatorSettings(repo, hostAndPort, options, tokenProvider);
 }
 /**
  * Disconnects from the server (all Database operations will be completed
@@ -29098,7 +29546,7 @@ function connectDatabaseEmulator(db, host, port, options = {}) {
  * @param db - The instance to disconnect.
  */
 function goOffline(db) {
-    db = index_esm2017_getModularInstance(db);
+    db = index_esm_getModularInstance(db);
     db._checkNotDeleted('goOffline');
     repoInterrupt(db._repo);
 }
@@ -29114,7 +29562,7 @@ function goOffline(db) {
  * @param db - The instance to reconnect.
  */
 function goOnline(db) {
-    db = index_esm2017_getModularInstance(db);
+    db = index_esm_getModularInstance(db);
     db._checkNotDeleted('goOnline');
     repoResume(db._repo);
 }
@@ -29138,6 +29586,7 @@ function enableLogging(logger, persistent) {
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// eslint-disable-next-line import/no-extraneous-dependencies
 function registerDatabase(variant) {
     setSDKVersion(SDK_VERSION);
     _registerComponent(new Component('database', (container, { instanceIdentifier: url }) => {
@@ -29146,9 +29595,9 @@ function registerDatabase(variant) {
         const appCheckProvider = container.getProvider('app-check-internal');
         return repoManagerDatabaseFromApp(app, authProvider, appCheckProvider, url);
     }, "PUBLIC" /* ComponentType.PUBLIC */).setMultipleInstances(true));
-    registerVersion(dist_index_esm2017_name, index_esm2017_version, variant);
-    // BUILD_TARGET will be replaced by values like esm5, esm2017, cjs5, etc during the compilation
-    registerVersion(dist_index_esm2017_name, index_esm2017_version, 'esm2017');
+    registerVersion(dist_index_esm_name, dist_index_esm_version, variant);
+    // BUILD_TARGET will be replaced by values like esm, cjs, etc during the compilation
+    registerVersion(dist_index_esm_name, dist_index_esm_version, 'esm2020');
 }
 
 /**
@@ -29267,14 +29716,13 @@ class TransactionResult {
 function runTransaction(ref, 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 transactionUpdate, options) {
-    var _a;
-    ref = index_esm2017_getModularInstance(ref);
+    ref = index_esm_getModularInstance(ref);
     validateWritablePath('Reference.transaction', ref._path);
     if (ref.key === '.length' || ref.key === '.keys') {
         throw ('Reference.transaction failed: ' + ref.key + ' is a read-only object.');
     }
-    const applyLocally = (_a = options === null || options === void 0 ? void 0 : options.applyLocally) !== null && _a !== void 0 ? _a : true;
-    const deferred = new index_esm2017_Deferred();
+    const applyLocally = options?.applyLocally ?? true;
+    const deferred = new index_esm_Deferred();
     const promiseComplete = (error, committed, node) => {
         let dataSnapshot = null;
         if (error) {
@@ -29307,7 +29755,6 @@ transactionUpdate, options) {
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-PersistentConnection;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 PersistentConnection.prototype.simpleListen = function (pathString, onComplete) {
     this.sendRequest('q', { p: pathString }, onComplete);
@@ -29316,8 +29763,6 @@ PersistentConnection.prototype.simpleListen = function (pathString, onComplete) 
 PersistentConnection.prototype.echo = function (data, onEcho) {
     this.sendRequest('echo', { d: data }, onEcho);
 };
-// RealTimeConnection properties that we use in tests.
-Connection;
 /**
  * @internal
  */
@@ -29333,7 +29778,6 @@ const hijackHash = function (newHash) {
         PersistentConnection.prototype.put = oldPut;
     };
 };
-RepoInfo;
 /**
  * Forces the RepoManager to create Repos that use ReadonlyRestClient instead of PersistentConnection.
  * @internal
@@ -29374,14 +29818,14 @@ function _initStandalone({ app, url, version, customAuthImpl, customAppCheckImpl
      * ComponentContainer('database-standalone') is just a placeholder that doesn't perform
      * any actual function.
      */
-    const componentContainer = new dist_index_esm2017_ComponentContainer('database-standalone');
-    const authProvider = new index_esm2017_Provider('auth-internal', componentContainer);
+    const componentContainer = new dist_index_esm_ComponentContainer('database-standalone');
+    const authProvider = new index_esm_Provider('auth-internal', componentContainer);
     let appCheckProvider;
     if (customAppCheckImpl) {
-        appCheckProvider = new index_esm2017_Provider('app-check-internal', componentContainer);
-        appCheckProvider.setComponent(new index_esm2017_Component('app-check-internal', () => customAppCheckImpl, "PRIVATE" /* ComponentType.PRIVATE */));
+        appCheckProvider = new index_esm_Provider('app-check-internal', componentContainer);
+        appCheckProvider.setComponent(new index_esm_Component('app-check-internal', () => customAppCheckImpl, "PRIVATE" /* ComponentType.PRIVATE */));
     }
-    authProvider.setComponent(new index_esm2017_Component('auth-internal', () => customAuthImpl, "PRIVATE" /* ComponentType.PRIVATE */));
+    authProvider.setComponent(new index_esm_Component('auth-internal', () => customAuthImpl, "PRIVATE" /* ComponentType.PRIVATE */));
     return repoManagerDatabaseFromApp(app, authProvider, appCheckProvider, url, nodeAdmin);
 }
 
@@ -29393,15 +29837,3181 @@ function _initStandalone({ app, url, version, customAuthImpl, customAppCheckImpl
 registerDatabase();
 
 
-//# sourceMappingURL=index.esm2017.js.map
+//# sourceMappingURL=index.esm.js.map
 
-;// ../../node_modules/firebase/database/dist/esm/index.esm.js
+;// ./node_modules/firebase/database/dist/esm/index.esm.js
+
+//# sourceMappingURL=index.esm.js.map
+
+;// ./node_modules/@firebase/installations/dist/esm/index.esm.js
+/* unused harmony import specifier */ var index_esm_getApp;
+/* unused harmony import specifier */ var index_esm_getProvider;
+
+
+
+
+
+const dist_esm_index_esm_name = "@firebase/installations";
+const esm_index_esm_version = "0.6.24";
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const PENDING_TIMEOUT_MS = 10000;
+const PACKAGE_VERSION = `w:${esm_index_esm_version}`;
+const INTERNAL_AUTH_VERSION = 'FIS_v2';
+const INSTALLATIONS_API_URL = 'https://firebaseinstallations.googleapis.com/v1';
+const TOKEN_EXPIRATION_BUFFER = 60 * 60 * 1000; // One hour
+const SERVICE = 'installations';
+const SERVICE_NAME = 'Installations';
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const ERROR_DESCRIPTION_MAP = {
+    ["missing-app-config-values" /* ErrorCode.MISSING_APP_CONFIG_VALUES */]: 'Missing App configuration value: "{$valueName}"',
+    ["not-registered" /* ErrorCode.NOT_REGISTERED */]: 'Firebase Installation is not registered.',
+    ["installation-not-found" /* ErrorCode.INSTALLATION_NOT_FOUND */]: 'Firebase Installation not found.',
+    ["request-failed" /* ErrorCode.REQUEST_FAILED */]: '{$requestName} request failed with error "{$serverCode} {$serverStatus}: {$serverMessage}"',
+    ["app-offline" /* ErrorCode.APP_OFFLINE */]: 'Could not process request. Application offline.',
+    ["delete-pending-registration" /* ErrorCode.DELETE_PENDING_REGISTRATION */]: "Can't delete installation while there is a pending registration request."
+};
+const index_esm_ERROR_FACTORY = new ErrorFactory(SERVICE, SERVICE_NAME, ERROR_DESCRIPTION_MAP);
+/** Returns true if error is a FirebaseError that is based on an error from the server. */
+function isServerError(error) {
+    return (error instanceof FirebaseError &&
+        error.code.includes("request-failed" /* ErrorCode.REQUEST_FAILED */));
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+function getInstallationsEndpoint({ projectId }) {
+    return `${INSTALLATIONS_API_URL}/projects/${projectId}/installations`;
+}
+function extractAuthTokenInfoFromResponse(response) {
+    return {
+        token: response.token,
+        requestStatus: 2 /* RequestStatus.COMPLETED */,
+        expiresIn: getExpiresInFromResponseExpiresIn(response.expiresIn),
+        creationTime: Date.now()
+    };
+}
+async function getErrorFromResponse(requestName, response) {
+    const responseJson = await response.json();
+    const errorData = responseJson.error;
+    return index_esm_ERROR_FACTORY.create("request-failed" /* ErrorCode.REQUEST_FAILED */, {
+        requestName,
+        serverCode: errorData.code,
+        serverMessage: errorData.message,
+        serverStatus: errorData.status
+    });
+}
+function getHeaders({ apiKey }) {
+    return new Headers({
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'x-goog-api-key': apiKey
+    });
+}
+function getHeadersWithAuth(appConfig, { refreshToken }) {
+    const headers = getHeaders(appConfig);
+    headers.append('Authorization', getAuthorizationHeader(refreshToken));
+    return headers;
+}
+/**
+ * Calls the passed in fetch wrapper and returns the response.
+ * If the returned response has a status of 5xx, re-runs the function once and
+ * returns the response.
+ */
+async function retryIfServerError(fn) {
+    const result = await fn();
+    if (result.status >= 500 && result.status < 600) {
+        // Internal Server Error. Retry request.
+        return fn();
+    }
+    return result;
+}
+function getExpiresInFromResponseExpiresIn(responseExpiresIn) {
+    // This works because the server will never respond with fractions of a second.
+    return Number(responseExpiresIn.replace('s', '000'));
+}
+function getAuthorizationHeader(refreshToken) {
+    return `${INTERNAL_AUTH_VERSION} ${refreshToken}`;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function createInstallationRequest({ appConfig, heartbeatServiceProvider }, { fid }) {
+    const endpoint = getInstallationsEndpoint(appConfig);
+    const headers = getHeaders(appConfig);
+    // If heartbeat service exists, add the heartbeat string to the header.
+    const heartbeatService = heartbeatServiceProvider.getImmediate({
+        optional: true
+    });
+    if (heartbeatService) {
+        const heartbeatsHeader = await heartbeatService.getHeartbeatsHeader();
+        if (heartbeatsHeader) {
+            headers.append('x-firebase-client', heartbeatsHeader);
+        }
+    }
+    const body = {
+        fid,
+        authVersion: INTERNAL_AUTH_VERSION,
+        appId: appConfig.appId,
+        sdkVersion: PACKAGE_VERSION
+    };
+    const request = {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    };
+    const response = await retryIfServerError(() => fetch(endpoint, request));
+    if (response.ok) {
+        const responseValue = await response.json();
+        const registeredInstallationEntry = {
+            fid: responseValue.fid || fid,
+            registrationStatus: 2 /* RequestStatus.COMPLETED */,
+            refreshToken: responseValue.refreshToken,
+            authToken: extractAuthTokenInfoFromResponse(responseValue.authToken)
+        };
+        return registeredInstallationEntry;
+    }
+    else {
+        throw await getErrorFromResponse('Create Installation', response);
+    }
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/** Returns a promise that resolves after given time passes. */
+function sleep(ms) {
+    return new Promise(resolve => {
+        setTimeout(resolve, ms);
+    });
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+function bufferToBase64UrlSafe(array) {
+    const b64 = btoa(String.fromCharCode(...array));
+    return b64.replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const VALID_FID_PATTERN = /^[cdef][\w-]{21}$/;
+const INVALID_FID = '';
+/**
+ * Generates a new FID using random values from Web Crypto API.
+ * Returns an empty string if FID generation fails for any reason.
+ */
+function generateFid() {
+    try {
+        // A valid FID has exactly 22 base64 characters, which is 132 bits, or 16.5
+        // bytes. our implementation generates a 17 byte array instead.
+        const fidByteArray = new Uint8Array(17);
+        const crypto = self.crypto || self.msCrypto;
+        crypto.getRandomValues(fidByteArray);
+        // Replace the first 4 random bits with the constant FID header of 0b0111.
+        fidByteArray[0] = 0b01110000 + (fidByteArray[0] % 0b00010000);
+        const fid = encode(fidByteArray);
+        return VALID_FID_PATTERN.test(fid) ? fid : INVALID_FID;
+    }
+    catch {
+        // FID generation errored
+        return INVALID_FID;
+    }
+}
+/** Converts a FID Uint8Array to a base64 string representation. */
+function encode(fidByteArray) {
+    const b64String = bufferToBase64UrlSafe(fidByteArray);
+    // Remove the 23rd character that was added because of the extra 4 bits at the
+    // end of our 17 byte array, and the '=' padding.
+    return b64String.substr(0, 22);
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/** Returns a string key that can be used to identify the app. */
+function getKey(appConfig) {
+    return `${appConfig.appName}!${appConfig.appId}`;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const fidChangeCallbacks = new Map();
+/**
+ * Calls the onIdChange callbacks with the new FID value, and broadcasts the
+ * change to other tabs.
+ */
+function fidChanged(appConfig, fid) {
+    const key = getKey(appConfig);
+    callFidChangeCallbacks(key, fid);
+    broadcastFidChange(key, fid);
+}
+function addCallback(appConfig, callback) {
+    // Open the broadcast channel if it's not already open,
+    // to be able to listen to change events from other tabs.
+    getBroadcastChannel();
+    const key = getKey(appConfig);
+    let callbackSet = fidChangeCallbacks.get(key);
+    if (!callbackSet) {
+        callbackSet = new Set();
+        fidChangeCallbacks.set(key, callbackSet);
+    }
+    callbackSet.add(callback);
+}
+function removeCallback(appConfig, callback) {
+    const key = getKey(appConfig);
+    const callbackSet = fidChangeCallbacks.get(key);
+    if (!callbackSet) {
+        return;
+    }
+    callbackSet.delete(callback);
+    if (callbackSet.size === 0) {
+        fidChangeCallbacks.delete(key);
+    }
+    // Close broadcast channel if there are no more callbacks.
+    closeBroadcastChannel();
+}
+function callFidChangeCallbacks(key, fid) {
+    const callbacks = fidChangeCallbacks.get(key);
+    if (!callbacks) {
+        return;
+    }
+    for (const callback of callbacks) {
+        callback(fid);
+    }
+}
+function broadcastFidChange(key, fid) {
+    const channel = getBroadcastChannel();
+    if (channel) {
+        channel.postMessage({ key, fid });
+    }
+    closeBroadcastChannel();
+}
+let broadcastChannel = null;
+/** Opens and returns a BroadcastChannel if it is supported by the browser. */
+function getBroadcastChannel() {
+    if (!broadcastChannel && 'BroadcastChannel' in self) {
+        broadcastChannel = new BroadcastChannel('[Firebase] FID Change');
+        broadcastChannel.onmessage = e => {
+            callFidChangeCallbacks(e.data.key, e.data.fid);
+        };
+    }
+    return broadcastChannel;
+}
+function closeBroadcastChannel() {
+    if (fidChangeCallbacks.size === 0 && broadcastChannel) {
+        broadcastChannel.close();
+        broadcastChannel = null;
+    }
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const DATABASE_NAME = 'firebase-installations-database';
+const DATABASE_VERSION = 1;
+const OBJECT_STORE_NAME = 'firebase-installations-store';
+let index_esm_dbPromise = null;
+function index_esm_getDbPromise() {
+    if (!index_esm_dbPromise) {
+        index_esm_dbPromise = openDB(DATABASE_NAME, DATABASE_VERSION, {
+            upgrade: (db, oldVersion) => {
+                // We don't use 'break' in this switch statement, the fall-through
+                // behavior is what we want, because if there are multiple versions between
+                // the old version and the current version, we want ALL the migrations
+                // that correspond to those versions to run, not only the last one.
+                // eslint-disable-next-line default-case
+                switch (oldVersion) {
+                    case 0:
+                        db.createObjectStore(OBJECT_STORE_NAME);
+                }
+            }
+        });
+    }
+    return index_esm_dbPromise;
+}
+/** Assigns or overwrites the record for the given key with the given value. */
+async function index_esm_set(appConfig, value) {
+    const key = getKey(appConfig);
+    const db = await index_esm_getDbPromise();
+    const tx = db.transaction(OBJECT_STORE_NAME, 'readwrite');
+    const objectStore = tx.objectStore(OBJECT_STORE_NAME);
+    const oldValue = (await objectStore.get(key));
+    await objectStore.put(value, key);
+    await tx.done;
+    if (!oldValue || oldValue.fid !== value.fid) {
+        fidChanged(appConfig, value.fid);
+    }
+    return value;
+}
+/** Removes record(s) from the objectStore that match the given key. */
+async function index_esm_remove(appConfig) {
+    const key = getKey(appConfig);
+    const db = await index_esm_getDbPromise();
+    const tx = db.transaction(OBJECT_STORE_NAME, 'readwrite');
+    await tx.objectStore(OBJECT_STORE_NAME).delete(key);
+    await tx.done;
+}
+/**
+ * Atomically updates a record with the result of updateFn, which gets
+ * called with the current value. If newValue is undefined, the record is
+ * deleted instead.
+ * @return Updated value
+ */
+async function index_esm_update(appConfig, updateFn) {
+    const key = getKey(appConfig);
+    const db = await index_esm_getDbPromise();
+    const tx = db.transaction(OBJECT_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(OBJECT_STORE_NAME);
+    const oldValue = (await store.get(key));
+    const newValue = updateFn(oldValue);
+    if (newValue === undefined) {
+        await store.delete(key);
+    }
+    else {
+        await store.put(newValue, key);
+    }
+    await tx.done;
+    if (newValue && (!oldValue || oldValue.fid !== newValue.fid)) {
+        fidChanged(appConfig, newValue.fid);
+    }
+    return newValue;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Updates and returns the InstallationEntry from the database.
+ * Also triggers a registration request if it is necessary and possible.
+ */
+async function getInstallationEntry(installations) {
+    let registrationPromise;
+    const installationEntry = await index_esm_update(installations.appConfig, oldEntry => {
+        const installationEntry = updateOrCreateInstallationEntry(oldEntry);
+        const entryWithPromise = triggerRegistrationIfNecessary(installations, installationEntry);
+        registrationPromise = entryWithPromise.registrationPromise;
+        return entryWithPromise.installationEntry;
+    });
+    if (installationEntry.fid === INVALID_FID) {
+        // FID generation failed. Waiting for the FID from the server.
+        return { installationEntry: await registrationPromise };
+    }
+    return {
+        installationEntry,
+        registrationPromise
+    };
+}
+/**
+ * Creates a new Installation Entry if one does not exist.
+ * Also clears timed out pending requests.
+ */
+function updateOrCreateInstallationEntry(oldEntry) {
+    const entry = oldEntry || {
+        fid: generateFid(),
+        registrationStatus: 0 /* RequestStatus.NOT_STARTED */
+    };
+    return clearTimedOutRequest(entry);
+}
+/**
+ * If the Firebase Installation is not registered yet, this will trigger the
+ * registration and return an InProgressInstallationEntry.
+ *
+ * If registrationPromise does not exist, the installationEntry is guaranteed
+ * to be registered.
+ */
+function triggerRegistrationIfNecessary(installations, installationEntry) {
+    if (installationEntry.registrationStatus === 0 /* RequestStatus.NOT_STARTED */) {
+        if (!navigator.onLine) {
+            // Registration required but app is offline.
+            const registrationPromiseWithError = Promise.reject(index_esm_ERROR_FACTORY.create("app-offline" /* ErrorCode.APP_OFFLINE */));
+            return {
+                installationEntry,
+                registrationPromise: registrationPromiseWithError
+            };
+        }
+        // Try registering. Change status to IN_PROGRESS.
+        const inProgressEntry = {
+            fid: installationEntry.fid,
+            registrationStatus: 1 /* RequestStatus.IN_PROGRESS */,
+            registrationTime: Date.now()
+        };
+        const registrationPromise = registerInstallation(installations, inProgressEntry);
+        return { installationEntry: inProgressEntry, registrationPromise };
+    }
+    else if (installationEntry.registrationStatus === 1 /* RequestStatus.IN_PROGRESS */) {
+        return {
+            installationEntry,
+            registrationPromise: waitUntilFidRegistration(installations)
+        };
+    }
+    else {
+        return { installationEntry };
+    }
+}
+/** This will be executed only once for each new Firebase Installation. */
+async function registerInstallation(installations, installationEntry) {
+    try {
+        const registeredInstallationEntry = await createInstallationRequest(installations, installationEntry);
+        return index_esm_set(installations.appConfig, registeredInstallationEntry);
+    }
+    catch (e) {
+        if (isServerError(e) && e.customData.serverCode === 409) {
+            // Server returned a "FID cannot be used" error.
+            // Generate a new ID next time.
+            await index_esm_remove(installations.appConfig);
+        }
+        else {
+            // Registration failed. Set FID as not registered.
+            await index_esm_set(installations.appConfig, {
+                fid: installationEntry.fid,
+                registrationStatus: 0 /* RequestStatus.NOT_STARTED */
+            });
+        }
+        throw e;
+    }
+}
+/** Call if FID registration is pending in another request. */
+async function waitUntilFidRegistration(installations) {
+    // Unfortunately, there is no way of reliably observing when a value in
+    // IndexedDB changes (yet, see https://github.com/WICG/indexed-db-observers),
+    // so we need to poll.
+    let entry = await updateInstallationRequest(installations.appConfig);
+    while (entry.registrationStatus === 1 /* RequestStatus.IN_PROGRESS */) {
+        // createInstallation request still in progress.
+        await sleep(100);
+        entry = await updateInstallationRequest(installations.appConfig);
+    }
+    if (entry.registrationStatus === 0 /* RequestStatus.NOT_STARTED */) {
+        // The request timed out or failed in a different call. Try again.
+        const { installationEntry, registrationPromise } = await getInstallationEntry(installations);
+        if (registrationPromise) {
+            return registrationPromise;
+        }
+        else {
+            // if there is no registrationPromise, entry is registered.
+            return installationEntry;
+        }
+    }
+    return entry;
+}
+/**
+ * Called only if there is a CreateInstallation request in progress.
+ *
+ * Updates the InstallationEntry in the DB based on the status of the
+ * CreateInstallation request.
+ *
+ * Returns the updated InstallationEntry.
+ */
+function updateInstallationRequest(appConfig) {
+    return index_esm_update(appConfig, oldEntry => {
+        if (!oldEntry) {
+            throw index_esm_ERROR_FACTORY.create("installation-not-found" /* ErrorCode.INSTALLATION_NOT_FOUND */);
+        }
+        return clearTimedOutRequest(oldEntry);
+    });
+}
+function clearTimedOutRequest(entry) {
+    if (hasInstallationRequestTimedOut(entry)) {
+        return {
+            fid: entry.fid,
+            registrationStatus: 0 /* RequestStatus.NOT_STARTED */
+        };
+    }
+    return entry;
+}
+function hasInstallationRequestTimedOut(installationEntry) {
+    return (installationEntry.registrationStatus === 1 /* RequestStatus.IN_PROGRESS */ &&
+        installationEntry.registrationTime + PENDING_TIMEOUT_MS < Date.now());
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function generateAuthTokenRequest({ appConfig, heartbeatServiceProvider }, installationEntry) {
+    const endpoint = getGenerateAuthTokenEndpoint(appConfig, installationEntry);
+    const headers = getHeadersWithAuth(appConfig, installationEntry);
+    // If heartbeat service exists, add the heartbeat string to the header.
+    const heartbeatService = heartbeatServiceProvider.getImmediate({
+        optional: true
+    });
+    if (heartbeatService) {
+        const heartbeatsHeader = await heartbeatService.getHeartbeatsHeader();
+        if (heartbeatsHeader) {
+            headers.append('x-firebase-client', heartbeatsHeader);
+        }
+    }
+    const body = {
+        installation: {
+            sdkVersion: PACKAGE_VERSION,
+            appId: appConfig.appId
+        }
+    };
+    const request = {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    };
+    const response = await retryIfServerError(() => fetch(endpoint, request));
+    if (response.ok) {
+        const responseValue = await response.json();
+        const completedAuthToken = extractAuthTokenInfoFromResponse(responseValue);
+        return completedAuthToken;
+    }
+    else {
+        throw await getErrorFromResponse('Generate Auth Token', response);
+    }
+}
+function getGenerateAuthTokenEndpoint(appConfig, { fid }) {
+    return `${getInstallationsEndpoint(appConfig)}/${fid}/authTokens:generate`;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Returns a valid authentication token for the installation. Generates a new
+ * token if one doesn't exist, is expired or about to expire.
+ *
+ * Should only be called if the Firebase Installation is registered.
+ */
+async function refreshAuthToken(installations, forceRefresh = false) {
+    let tokenPromise;
+    const entry = await index_esm_update(installations.appConfig, oldEntry => {
+        if (!isEntryRegistered(oldEntry)) {
+            throw index_esm_ERROR_FACTORY.create("not-registered" /* ErrorCode.NOT_REGISTERED */);
+        }
+        const oldAuthToken = oldEntry.authToken;
+        if (!forceRefresh && isAuthTokenValid(oldAuthToken)) {
+            // There is a valid token in the DB.
+            return oldEntry;
+        }
+        else if (oldAuthToken.requestStatus === 1 /* RequestStatus.IN_PROGRESS */) {
+            // There already is a token request in progress.
+            tokenPromise = waitUntilAuthTokenRequest(installations, forceRefresh);
+            return oldEntry;
+        }
+        else {
+            // No token or token expired.
+            if (!navigator.onLine) {
+                throw index_esm_ERROR_FACTORY.create("app-offline" /* ErrorCode.APP_OFFLINE */);
+            }
+            const inProgressEntry = makeAuthTokenRequestInProgressEntry(oldEntry);
+            tokenPromise = fetchAuthTokenFromServer(installations, inProgressEntry);
+            return inProgressEntry;
+        }
+    });
+    const authToken = tokenPromise
+        ? await tokenPromise
+        : entry.authToken;
+    return authToken;
+}
+/**
+ * Call only if FID is registered and Auth Token request is in progress.
+ *
+ * Waits until the current pending request finishes. If the request times out,
+ * tries once in this thread as well.
+ */
+async function waitUntilAuthTokenRequest(installations, forceRefresh) {
+    // Unfortunately, there is no way of reliably observing when a value in
+    // IndexedDB changes (yet, see https://github.com/WICG/indexed-db-observers),
+    // so we need to poll.
+    let entry = await updateAuthTokenRequest(installations.appConfig);
+    while (entry.authToken.requestStatus === 1 /* RequestStatus.IN_PROGRESS */) {
+        // generateAuthToken still in progress.
+        await sleep(100);
+        entry = await updateAuthTokenRequest(installations.appConfig);
+    }
+    const authToken = entry.authToken;
+    if (authToken.requestStatus === 0 /* RequestStatus.NOT_STARTED */) {
+        // The request timed out or failed in a different call. Try again.
+        return refreshAuthToken(installations, forceRefresh);
+    }
+    else {
+        return authToken;
+    }
+}
+/**
+ * Called only if there is a GenerateAuthToken request in progress.
+ *
+ * Updates the InstallationEntry in the DB based on the status of the
+ * GenerateAuthToken request.
+ *
+ * Returns the updated InstallationEntry.
+ */
+function updateAuthTokenRequest(appConfig) {
+    return index_esm_update(appConfig, oldEntry => {
+        if (!isEntryRegistered(oldEntry)) {
+            throw index_esm_ERROR_FACTORY.create("not-registered" /* ErrorCode.NOT_REGISTERED */);
+        }
+        const oldAuthToken = oldEntry.authToken;
+        if (hasAuthTokenRequestTimedOut(oldAuthToken)) {
+            return {
+                ...oldEntry,
+                authToken: { requestStatus: 0 /* RequestStatus.NOT_STARTED */ }
+            };
+        }
+        return oldEntry;
+    });
+}
+async function fetchAuthTokenFromServer(installations, installationEntry) {
+    try {
+        const authToken = await generateAuthTokenRequest(installations, installationEntry);
+        const updatedInstallationEntry = {
+            ...installationEntry,
+            authToken
+        };
+        await index_esm_set(installations.appConfig, updatedInstallationEntry);
+        return authToken;
+    }
+    catch (e) {
+        if (isServerError(e) &&
+            (e.customData.serverCode === 401 || e.customData.serverCode === 404)) {
+            // Server returned a "FID not found" or a "Invalid authentication" error.
+            // Generate a new ID next time.
+            await index_esm_remove(installations.appConfig);
+        }
+        else {
+            const updatedInstallationEntry = {
+                ...installationEntry,
+                authToken: { requestStatus: 0 /* RequestStatus.NOT_STARTED */ }
+            };
+            await index_esm_set(installations.appConfig, updatedInstallationEntry);
+        }
+        throw e;
+    }
+}
+function isEntryRegistered(installationEntry) {
+    return (installationEntry !== undefined &&
+        installationEntry.registrationStatus === 2 /* RequestStatus.COMPLETED */);
+}
+function isAuthTokenValid(authToken) {
+    return (authToken.requestStatus === 2 /* RequestStatus.COMPLETED */ &&
+        !isAuthTokenExpired(authToken));
+}
+function isAuthTokenExpired(authToken) {
+    const now = Date.now();
+    return (now < authToken.creationTime ||
+        authToken.creationTime + authToken.expiresIn < now + TOKEN_EXPIRATION_BUFFER);
+}
+/** Returns an updated InstallationEntry with an InProgressAuthToken. */
+function makeAuthTokenRequestInProgressEntry(oldEntry) {
+    const inProgressAuthToken = {
+        requestStatus: 1 /* RequestStatus.IN_PROGRESS */,
+        requestTime: Date.now()
+    };
+    return {
+        ...oldEntry,
+        authToken: inProgressAuthToken
+    };
+}
+function hasAuthTokenRequestTimedOut(authToken) {
+    return (authToken.requestStatus === 1 /* RequestStatus.IN_PROGRESS */ &&
+        authToken.requestTime + PENDING_TIMEOUT_MS < Date.now());
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Creates a Firebase Installation if there isn't one for the app and
+ * returns the Installation ID.
+ * @param installations - The `Installations` instance.
+ *
+ * @public
+ */
+async function getId(installations) {
+    const installationsImpl = installations;
+    const { installationEntry, registrationPromise } = await getInstallationEntry(installationsImpl);
+    if (registrationPromise) {
+        registrationPromise.catch(console.error);
+    }
+    else {
+        // If the installation is already registered, update the authentication
+        // token if needed.
+        refreshAuthToken(installationsImpl).catch(console.error);
+    }
+    return installationEntry.fid;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Returns a Firebase Installations auth token, identifying the current
+ * Firebase Installation.
+ * @param installations - The `Installations` instance.
+ * @param forceRefresh - Force refresh regardless of token expiration.
+ *
+ * @public
+ */
+async function getToken(installations, forceRefresh = false) {
+    const installationsImpl = installations;
+    await completeInstallationRegistration(installationsImpl);
+    // At this point we either have a Registered Installation in the DB, or we've
+    // already thrown an error.
+    const authToken = await refreshAuthToken(installationsImpl, forceRefresh);
+    return authToken.token;
+}
+async function completeInstallationRegistration(installations) {
+    const { registrationPromise } = await getInstallationEntry(installations);
+    if (registrationPromise) {
+        // A createInstallation request is in progress. Wait until it finishes.
+        await registrationPromise;
+    }
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function deleteInstallationRequest(appConfig, installationEntry) {
+    const endpoint = getDeleteEndpoint(appConfig, installationEntry);
+    const headers = getHeadersWithAuth(appConfig, installationEntry);
+    const request = {
+        method: 'DELETE',
+        headers
+    };
+    const response = await retryIfServerError(() => fetch(endpoint, request));
+    if (!response.ok) {
+        throw await getErrorFromResponse('Delete Installation', response);
+    }
+}
+function getDeleteEndpoint(appConfig, { fid }) {
+    return `${getInstallationsEndpoint(appConfig)}/${fid}`;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Deletes the Firebase Installation and all associated data.
+ * @param installations - The `Installations` instance.
+ *
+ * @public
+ */
+async function deleteInstallations(installations) {
+    const { appConfig } = installations;
+    const entry = await index_esm_update(appConfig, oldEntry => {
+        if (oldEntry && oldEntry.registrationStatus === 0 /* RequestStatus.NOT_STARTED */) {
+            // Delete the unregistered entry without sending a deleteInstallation request.
+            return undefined;
+        }
+        return oldEntry;
+    });
+    if (entry) {
+        if (entry.registrationStatus === 1 /* RequestStatus.IN_PROGRESS */) {
+            // Can't delete while trying to register.
+            throw index_esm_ERROR_FACTORY.create("delete-pending-registration" /* ErrorCode.DELETE_PENDING_REGISTRATION */);
+        }
+        else if (entry.registrationStatus === 2 /* RequestStatus.COMPLETED */) {
+            if (!navigator.onLine) {
+                throw index_esm_ERROR_FACTORY.create("app-offline" /* ErrorCode.APP_OFFLINE */);
+            }
+            else {
+                await deleteInstallationRequest(appConfig, entry);
+                await index_esm_remove(appConfig);
+            }
+        }
+    }
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Sets a new callback that will get called when Installation ID changes.
+ * Returns an unsubscribe function that will remove the callback when called.
+ * @param installations - The `Installations` instance.
+ * @param callback - The callback function that is invoked when FID changes.
+ * @returns A function that can be called to unsubscribe.
+ *
+ * @public
+ */
+function onIdChange(installations, callback) {
+    const { appConfig } = installations;
+    addCallback(appConfig, callback);
+    return () => {
+        removeCallback(appConfig, callback);
+    };
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Returns an instance of {@link Installations} associated with the given
+ * {@link @firebase/app#FirebaseApp} instance.
+ * @param app - The {@link @firebase/app#FirebaseApp} instance.
+ *
+ * @public
+ */
+function getInstallations(app = index_esm_getApp()) {
+    const installationsImpl = index_esm_getProvider(app, 'installations').getImmediate();
+    return installationsImpl;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+function extractAppConfig(app) {
+    if (!app || !app.options) {
+        throw getMissingValueError('App Configuration');
+    }
+    if (!app.name) {
+        throw getMissingValueError('App Name');
+    }
+    // Required app config keys
+    const configKeys = [
+        'projectId',
+        'apiKey',
+        'appId'
+    ];
+    for (const keyName of configKeys) {
+        if (!app.options[keyName]) {
+            throw getMissingValueError(keyName);
+        }
+    }
+    return {
+        appName: app.name,
+        projectId: app.options.projectId,
+        apiKey: app.options.apiKey,
+        appId: app.options.appId
+    };
+}
+function getMissingValueError(valueName) {
+    return index_esm_ERROR_FACTORY.create("missing-app-config-values" /* ErrorCode.MISSING_APP_CONFIG_VALUES */, {
+        valueName
+    });
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const INSTALLATIONS_NAME = 'installations';
+const INSTALLATIONS_NAME_INTERNAL = 'installations-internal';
+const publicFactory = (container) => {
+    const app = container.getProvider('app').getImmediate();
+    // Throws if app isn't configured properly.
+    const appConfig = extractAppConfig(app);
+    const heartbeatServiceProvider = _getProvider(app, 'heartbeat');
+    const installationsImpl = {
+        app,
+        appConfig,
+        heartbeatServiceProvider,
+        _delete: () => Promise.resolve()
+    };
+    return installationsImpl;
+};
+const internalFactory = (container) => {
+    const app = container.getProvider('app').getImmediate();
+    // Internal FIS instance relies on public FIS instance.
+    const installations = _getProvider(app, INSTALLATIONS_NAME).getImmediate();
+    const installationsInternal = {
+        getId: () => getId(installations),
+        getToken: (forceRefresh) => getToken(installations, forceRefresh)
+    };
+    return installationsInternal;
+};
+function registerInstallations() {
+    _registerComponent(new Component(INSTALLATIONS_NAME, publicFactory, "PUBLIC" /* ComponentType.PUBLIC */));
+    _registerComponent(new Component(INSTALLATIONS_NAME_INTERNAL, internalFactory, "PRIVATE" /* ComponentType.PRIVATE */));
+}
+
+/**
+ * The Firebase Installations Web SDK.
+ * This SDK does not work in a Node.js environment.
+ *
+ * @packageDocumentation
+ */
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+registerInstallations();
+registerVersion(dist_esm_index_esm_name, esm_index_esm_version);
+// BUILD_TARGET will be replaced by values like esm, cjs, etc during the compilation
+registerVersion(dist_esm_index_esm_name, esm_index_esm_version, 'esm2020');
+
+
+//# sourceMappingURL=index.esm.js.map
+
+;// ./node_modules/@firebase/messaging/dist/esm/index.esm.js
+/* unused harmony import specifier */ var esm_index_esm_getModularInstance;
+
+
+
+
+
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const DEFAULT_SW_PATH = '/firebase-messaging-sw.js';
+const DEFAULT_SW_SCOPE = '/firebase-cloud-messaging-push-scope';
+const DEFAULT_VAPID_KEY = 'BDOU99-h67HcA6JeFXHbSNMu7e2yNNu3RzoMj8TM4W88jITfq7ZmPvIM1Iv-4_l2LxQcYwhqby2xGpWwzjfAnG4';
+const ENDPOINT = 'https://fcmregistrations.googleapis.com/v1';
+const CONSOLE_CAMPAIGN_ID = 'google.c.a.c_id';
+const CONSOLE_CAMPAIGN_NAME = 'google.c.a.c_l';
+const CONSOLE_CAMPAIGN_TIME = 'google.c.a.ts';
+/** Set to '1' if Analytics is enabled for the campaign */
+const CONSOLE_CAMPAIGN_ANALYTICS_ENABLED = 'google.c.a.e';
+const DEFAULT_REGISTRATION_TIMEOUT = 10000;
+var MessageType$1;
+(function (MessageType) {
+    MessageType[MessageType["DATA_MESSAGE"] = 1] = "DATA_MESSAGE";
+    MessageType[MessageType["DISPLAY_NOTIFICATION"] = 3] = "DISPLAY_NOTIFICATION";
+})(MessageType$1 || (MessageType$1 = {}));
+
+/**
+ * @license
+ * Copyright 2018 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
+ * the License.
+ */
+var MessageType;
+(function (MessageType) {
+    MessageType["PUSH_RECEIVED"] = "push-received";
+    MessageType["NOTIFICATION_CLICKED"] = "notification-clicked";
+    MessageType["FID_REGISTERED"] = "fid-registered";
+})(MessageType || (MessageType = {}));
+
+/**
+ * @license
+ * Copyright 2017 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+function arrayToBase64(array) {
+    const uint8Array = new Uint8Array(array);
+    const base64String = btoa(String.fromCharCode(...uint8Array));
+    return base64String.replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+function base64ToArray(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding)
+        .replace(/\-/g, '+')
+        .replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const OLD_DB_NAME = 'fcm_token_details_db';
+/**
+ * The last DB version of 'fcm_token_details_db' was 4. This is one higher, so that the upgrade
+ * callback is called for all versions of the old DB.
+ */
+const OLD_DB_VERSION = 5;
+const OLD_OBJECT_STORE_NAME = 'fcm_token_object_Store';
+async function migrateOldDatabase(senderId) {
+    if ('databases' in indexedDB) {
+        // indexedDb.databases() is an IndexedDB v3 API and does not exist in all browsers. TODO: Remove
+        // typecast when it lands in TS types.
+        const databases = await indexedDB.databases();
+        const dbNames = databases.map(db => db.name);
+        if (!dbNames.includes(OLD_DB_NAME)) {
+            // old DB didn't exist, no need to open.
+            return null;
+        }
+    }
+    let tokenDetails = null;
+    const db = await openDB(OLD_DB_NAME, OLD_DB_VERSION, {
+        upgrade: async (db, oldVersion, newVersion, upgradeTransaction) => {
+            if (oldVersion < 2) {
+                // Database too old, skip migration.
+                return;
+            }
+            if (!db.objectStoreNames.contains(OLD_OBJECT_STORE_NAME)) {
+                // Database did not exist. Nothing to do.
+                return;
+            }
+            const objectStore = upgradeTransaction.objectStore(OLD_OBJECT_STORE_NAME);
+            const value = await objectStore.index('fcmSenderId').get(senderId);
+            await objectStore.clear();
+            if (!value) {
+                // No entry in the database, nothing to migrate.
+                return;
+            }
+            if (oldVersion === 2) {
+                const oldDetails = value;
+                if (!oldDetails.auth || !oldDetails.p256dh || !oldDetails.endpoint) {
+                    return;
+                }
+                tokenDetails = {
+                    token: oldDetails.fcmToken,
+                    createTime: oldDetails.createTime ?? Date.now(),
+                    subscriptionOptions: {
+                        auth: oldDetails.auth,
+                        p256dh: oldDetails.p256dh,
+                        endpoint: oldDetails.endpoint,
+                        swScope: oldDetails.swScope,
+                        vapidKey: typeof oldDetails.vapidKey === 'string'
+                            ? oldDetails.vapidKey
+                            : arrayToBase64(oldDetails.vapidKey)
+                    }
+                };
+            }
+            else if (oldVersion === 3) {
+                const oldDetails = value;
+                tokenDetails = {
+                    token: oldDetails.fcmToken,
+                    createTime: oldDetails.createTime,
+                    subscriptionOptions: {
+                        auth: arrayToBase64(oldDetails.auth),
+                        p256dh: arrayToBase64(oldDetails.p256dh),
+                        endpoint: oldDetails.endpoint,
+                        swScope: oldDetails.swScope,
+                        vapidKey: arrayToBase64(oldDetails.vapidKey)
+                    }
+                };
+            }
+            else if (oldVersion === 4) {
+                const oldDetails = value;
+                tokenDetails = {
+                    token: oldDetails.fcmToken,
+                    createTime: oldDetails.createTime,
+                    subscriptionOptions: {
+                        auth: arrayToBase64(oldDetails.auth),
+                        p256dh: arrayToBase64(oldDetails.p256dh),
+                        endpoint: oldDetails.endpoint,
+                        swScope: oldDetails.swScope,
+                        vapidKey: arrayToBase64(oldDetails.vapidKey)
+                    }
+                };
+            }
+        }
+    });
+    db.close();
+    // Delete all old databases.
+    await deleteDB(OLD_DB_NAME);
+    await deleteDB('fcm_vapid_details_db');
+    await deleteDB('undefined');
+    return checkTokenDetails(tokenDetails) ? tokenDetails : null;
+}
+function checkTokenDetails(tokenDetails) {
+    if (!tokenDetails || !tokenDetails.subscriptionOptions) {
+        return false;
+    }
+    const { subscriptionOptions } = tokenDetails;
+    return (typeof tokenDetails.createTime === 'number' &&
+        tokenDetails.createTime > 0 &&
+        typeof tokenDetails.token === 'string' &&
+        tokenDetails.token.length > 0 &&
+        typeof subscriptionOptions.auth === 'string' &&
+        subscriptionOptions.auth.length > 0 &&
+        typeof subscriptionOptions.p256dh === 'string' &&
+        subscriptionOptions.p256dh.length > 0 &&
+        typeof subscriptionOptions.endpoint === 'string' &&
+        subscriptionOptions.endpoint.length > 0 &&
+        typeof subscriptionOptions.swScope === 'string' &&
+        subscriptionOptions.swScope.length > 0 &&
+        typeof subscriptionOptions.vapidKey === 'string' &&
+        subscriptionOptions.vapidKey.length > 0);
+}
+
+/**
+ * @license
+ * Copyright 2017 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const ERROR_MAP = {
+    ["missing-app-config-values" /* ErrorCode.MISSING_APP_CONFIG_VALUES */]: 'Missing App configuration value: "{$valueName}"',
+    ["only-available-in-window" /* ErrorCode.AVAILABLE_IN_WINDOW */]: 'This method is available in a Window context.',
+    ["only-available-in-sw" /* ErrorCode.AVAILABLE_IN_SW */]: 'This method is available in a service worker context.',
+    ["permission-default" /* ErrorCode.PERMISSION_DEFAULT */]: 'The notification permission was not granted and dismissed instead.',
+    ["permission-blocked" /* ErrorCode.PERMISSION_BLOCKED */]: 'The notification permission was not granted and blocked instead.',
+    ["unsupported-browser" /* ErrorCode.UNSUPPORTED_BROWSER */]: "This browser doesn't support the API's required to use the Firebase SDK.",
+    ["indexed-db-unsupported" /* ErrorCode.INDEXED_DB_UNSUPPORTED */]: "This browser doesn't support indexedDb.open() (ex. Safari iFrame, Firefox Private Browsing, etc)",
+    ["failed-service-worker-registration" /* ErrorCode.FAILED_DEFAULT_REGISTRATION */]: 'We are unable to register the default service worker. {$browserErrorMessage}',
+    ["token-subscribe-failed" /* ErrorCode.TOKEN_SUBSCRIBE_FAILED */]: 'A problem occurred while subscribing the user to FCM: {$errorInfo}',
+    ["token-subscribe-no-token" /* ErrorCode.TOKEN_SUBSCRIBE_NO_TOKEN */]: 'FCM returned no token when subscribing the user to push.',
+    ["fid-registration-failed" /* ErrorCode.FID_REGISTRATION_FAILED */]: 'A problem occurred while creating an FCM registration via FID: {$errorInfo}',
+    ["fid-unregister-failed" /* ErrorCode.FID_UNREGISTER_FAILED */]: 'A problem occurred while unregistering the FCM registration via FID: {$errorInfo}',
+    ["fid-registration-idb-schema-unavailable" /* ErrorCode.FID_REGISTRATION_IDB_SCHEMA_UNAVAILABLE */]: 'Unable to read or persist FID registration metadata because the messaging ' +
+        'IndexedDB schema is unavailable (for example, the database could not be ' +
+        'upgraded to the latest version).',
+    ["token-unsubscribe-failed" /* ErrorCode.TOKEN_UNSUBSCRIBE_FAILED */]: 'A problem occurred while unsubscribing the ' +
+        'user from FCM: {$errorInfo}',
+    ["token-update-failed" /* ErrorCode.TOKEN_UPDATE_FAILED */]: 'A problem occurred while updating the user from FCM: {$errorInfo}',
+    ["token-update-no-token" /* ErrorCode.TOKEN_UPDATE_NO_TOKEN */]: 'FCM returned no token when updating the user to push.',
+    ["use-sw-after-get-token" /* ErrorCode.USE_SW_AFTER_GET_TOKEN */]: 'The useServiceWorker() method may only be called once and must be ' +
+        'called before calling getToken() to ensure your service worker is used.',
+    ["invalid-sw-registration" /* ErrorCode.INVALID_SW_REGISTRATION */]: 'The input to useServiceWorker() must be a ServiceWorkerRegistration.',
+    ["invalid-bg-handler" /* ErrorCode.INVALID_BG_HANDLER */]: 'The input to setBackgroundMessageHandler() must be a function.',
+    ["invalid-vapid-key" /* ErrorCode.INVALID_VAPID_KEY */]: 'The public VAPID key must be a string.',
+    ["use-vapid-key-after-get-token" /* ErrorCode.USE_VAPID_KEY_AFTER_GET_TOKEN */]: 'The usePublicVapidKey() method may only be called once and must be ' +
+        'called before calling getToken() to ensure your VAPID key is used.',
+    ["invalid-on-registered-handler" /* ErrorCode.INVALID_ON_REGISTERED_HANDLER */]: 'No onRegistered callback handler was provided or registered. Implement onRegistered() before register().'
+};
+const esm_index_esm_ERROR_FACTORY = new ErrorFactory('messaging', 'Messaging', ERROR_MAP);
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const index_esm_DATABASE_NAME = 'firebase-messaging-database';
+const index_esm_DATABASE_VERSION = 2;
+const TOKEN_OBJECT_STORE_NAME = 'firebase-messaging-store';
+const FID_REGISTRATION_OBJECT_STORE_NAME = 'firebase-messaging-fid-registration-store';
+const defaultIdb = { openDB: openDB, deleteDB: deleteDB };
+let idbImpl = defaultIdb;
+// Open v2, but fall back to v1 if upgrade/open fails. Cache as `unknown` and guard store access.
+let esm_index_esm_dbPromise = null;
+function migrateMessagingDb(upgradeDb, oldVersion, targetSchemaVersion) {
+    // Intentional fall-through for v2: run all intermediate migrations.
+    // eslint-disable-next-line default-case
+    switch (oldVersion) {
+        case 0:
+            upgradeDb.createObjectStore(TOKEN_OBJECT_STORE_NAME);
+            if (targetSchemaVersion === 1) {
+                break;
+            }
+        // fall through
+        case 1:
+            if (targetSchemaVersion === 2) {
+                upgradeDb.createObjectStore(FID_REGISTRATION_OBJECT_STORE_NAME);
+            }
+    }
+}
+function createOpenDbOptions(targetSchemaVersion) {
+    return {
+        upgrade: (upgradeDb, oldVersion) => {
+            migrateMessagingDb(upgradeDb, oldVersion, targetSchemaVersion);
+        },
+        blocked: () => {
+            /* no-op */
+        },
+        blocking: (_currentVersion, _blockedVersion, event) => {
+            esm_index_esm_dbPromise = null;
+            event.target?.close();
+        },
+        terminated: () => {
+            esm_index_esm_dbPromise = null;
+        }
+    };
+}
+function esm_index_esm_getDbPromise() {
+    if (!esm_index_esm_dbPromise) {
+        const openLatest = idbImpl.openDB(index_esm_DATABASE_NAME, index_esm_DATABASE_VERSION, createOpenDbOptions(2));
+        // Assign synchronously to avoid concurrent openDB() calls.
+        esm_index_esm_dbPromise = openLatest.catch(() => idbImpl.openDB(index_esm_DATABASE_NAME, index_esm_DATABASE_VERSION - 1, createOpenDbOptions(1)));
+    }
+    return esm_index_esm_dbPromise;
+}
+function hasObjectStore(db, storeName) {
+    return db.objectStoreNames.contains(storeName);
+}
+function assertFidRegistrationObjectStore(db) {
+    if (!hasObjectStore(db, FID_REGISTRATION_OBJECT_STORE_NAME)) {
+        throw esm_index_esm_ERROR_FACTORY.create("fid-registration-idb-schema-unavailable" /* ErrorCode.FID_REGISTRATION_IDB_SCHEMA_UNAVAILABLE */);
+    }
+}
+async function dbGet(firebaseDependencies) {
+    const key = index_esm_getKey(firebaseDependencies);
+    const db = await esm_index_esm_getDbPromise();
+    const tokenDetails = (await db
+        .transaction(TOKEN_OBJECT_STORE_NAME)
+        .objectStore(TOKEN_OBJECT_STORE_NAME)
+        .get(key));
+    if (tokenDetails) {
+        return tokenDetails;
+    }
+    else {
+        const oldTokenDetails = await migrateOldDatabase(firebaseDependencies.appConfig.senderId);
+        if (oldTokenDetails) {
+            await dbSet(firebaseDependencies, oldTokenDetails);
+            return oldTokenDetails;
+        }
+    }
+}
+async function dbSet(firebaseDependencies, tokenDetails) {
+    const key = index_esm_getKey(firebaseDependencies);
+    const db = await esm_index_esm_getDbPromise();
+    const stores = [TOKEN_OBJECT_STORE_NAME];
+    const hasFidStore = hasObjectStore(db, FID_REGISTRATION_OBJECT_STORE_NAME);
+    if (hasFidStore) {
+        stores.push(FID_REGISTRATION_OBJECT_STORE_NAME);
+    }
+    const tx = db.transaction(stores, 'readwrite');
+    await tx.objectStore(TOKEN_OBJECT_STORE_NAME).put(tokenDetails, key);
+    if (hasFidStore) {
+        await tx.objectStore(FID_REGISTRATION_OBJECT_STORE_NAME).delete(key);
+    }
+    await tx.done;
+    return tokenDetails;
+}
+async function dbRemove(firebaseDependencies) {
+    const key = index_esm_getKey(firebaseDependencies);
+    const db = await esm_index_esm_getDbPromise();
+    const tx = db.transaction(TOKEN_OBJECT_STORE_NAME, 'readwrite');
+    await tx.objectStore(TOKEN_OBJECT_STORE_NAME).delete(key);
+    await tx.done;
+}
+async function dbGetFidRegistration(firebaseDependencies) {
+    const key = index_esm_getKey(firebaseDependencies);
+    const db = await esm_index_esm_getDbPromise();
+    assertFidRegistrationObjectStore(db);
+    return (await db
+        .transaction(FID_REGISTRATION_OBJECT_STORE_NAME)
+        .objectStore(FID_REGISTRATION_OBJECT_STORE_NAME)
+        .get(key));
+}
+async function dbSetFidRegistration(firebaseDependencies, details) {
+    const key = index_esm_getKey(firebaseDependencies);
+    const db = await esm_index_esm_getDbPromise();
+    assertFidRegistrationObjectStore(db);
+    const tx = db.transaction([TOKEN_OBJECT_STORE_NAME, FID_REGISTRATION_OBJECT_STORE_NAME], 'readwrite');
+    await tx.objectStore(FID_REGISTRATION_OBJECT_STORE_NAME).put(details, key);
+    await tx.objectStore(TOKEN_OBJECT_STORE_NAME).delete(key);
+    await tx.done;
+    return details;
+}
+async function dbRemoveFidRegistration(firebaseDependencies) {
+    const key = index_esm_getKey(firebaseDependencies);
+    const db = await esm_index_esm_getDbPromise();
+    assertFidRegistrationObjectStore(db);
+    const tx = db.transaction(FID_REGISTRATION_OBJECT_STORE_NAME, 'readwrite');
+    await tx.objectStore(FID_REGISTRATION_OBJECT_STORE_NAME).delete(key);
+    await tx.done;
+}
+function index_esm_getKey({ appConfig }) {
+    return appConfig.appId;
+}
+
+const messaging_dist_esm_index_esm_name = "@firebase/messaging";
+const dist_esm_index_esm_version = "0.13.3";
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/** Max attempts (initial fetch + retries) when CreateRegistration `fetch()` throws. */
+const FID_REGISTRATION_FETCH_MAX_ATTEMPTS = 3;
+/** Base delay in ms; backoff is `BASE * 2^attempt` after each failed attempt. */
+const FID_REGISTRATION_FETCH_BASE_BACKOFF_MS = 1000;
+async function requestGetToken(firebaseDependencies, subscriptionOptions) {
+    const headers = await index_esm_getHeaders(firebaseDependencies);
+    const body = getBody(subscriptionOptions, firebaseDependencies.appConfig.appName, 
+    /* includeSdkVersion= */ false);
+    const subscribeOptions = {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    };
+    let responseData;
+    try {
+        const response = await fetch(getEndpoint(firebaseDependencies.appConfig), subscribeOptions);
+        responseData = await response.json();
+    }
+    catch (err) {
+        throw esm_index_esm_ERROR_FACTORY.create("token-subscribe-failed" /* ErrorCode.TOKEN_SUBSCRIBE_FAILED */, {
+            errorInfo: err?.toString()
+        });
+    }
+    if (responseData.error) {
+        const message = responseData.error.message;
+        throw esm_index_esm_ERROR_FACTORY.create("token-subscribe-failed" /* ErrorCode.TOKEN_SUBSCRIBE_FAILED */, {
+            errorInfo: message
+        });
+    }
+    if (!responseData.token) {
+        throw esm_index_esm_ERROR_FACTORY.create("token-subscribe-no-token" /* ErrorCode.TOKEN_SUBSCRIBE_NO_TOKEN */);
+    }
+    return responseData.token;
+}
+async function requestCreateRegistration(firebaseDependencies, subscriptionOptions) {
+    const headers = await index_esm_getHeaders(firebaseDependencies);
+    const body = getBody(subscriptionOptions, firebaseDependencies.appConfig.appName, 
+    /* includeSdkVersion= */ true);
+    const subscribeOptions = {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    };
+    let response;
+    try {
+        response = await fetchWithExponentialRetry(() => fetch(getEndpoint(firebaseDependencies.appConfig), subscribeOptions), FID_REGISTRATION_FETCH_MAX_ATTEMPTS, FID_REGISTRATION_FETCH_BASE_BACKOFF_MS);
+    }
+    catch (err) {
+        throw esm_index_esm_ERROR_FACTORY.create("fid-registration-failed" /* ErrorCode.FID_REGISTRATION_FAILED */, {
+            errorInfo: err?.toString()
+        });
+    }
+    if (response.ok) {
+        const responseFid = await parseCreateRegistrationSuccessFid(response);
+        return { responseFid };
+    }
+    // `fetch()` succeeded, but the backend returned a non-2xx response.
+    // Best-effort parse the body to extract `error.message`, but always fail with
+    // `FID_REGISTRATION_FAILED` to keep the error surface uniform.
+    // Best-effort extraction of error details; the main signal is response.ok / status.
+    let responseData;
+    try {
+        responseData = (await response.json());
+    }
+    catch (err) {
+        throw esm_index_esm_ERROR_FACTORY.create("fid-registration-failed" /* ErrorCode.FID_REGISTRATION_FAILED */, {
+            errorInfo: response.statusText
+        });
+    }
+    const message = responseData.error?.message ?? response.statusText;
+    throw esm_index_esm_ERROR_FACTORY.create("fid-registration-failed" /* ErrorCode.FID_REGISTRATION_FAILED */, {
+        errorInfo: message
+    });
+}
+/**
+ * Deletes an FCM Web registration via DeleteRegistration using the Firebase Installation ID (FID).
+ */
+async function requestDeleteRegistration(firebaseDependencies, fid) {
+    const headers = await index_esm_getHeaders(firebaseDependencies);
+    const options = {
+        method: 'DELETE',
+        headers
+    };
+    let response;
+    try {
+        response = await fetch(`${getEndpoint(firebaseDependencies.appConfig)}/${fid}`, options);
+    }
+    catch (err) {
+        throw esm_index_esm_ERROR_FACTORY.create("fid-unregister-failed" /* ErrorCode.FID_UNREGISTER_FAILED */, {
+            errorInfo: err?.toString()
+        });
+    }
+    if (response.ok) {
+        return;
+    }
+    // Best-effort parse error details; surface uniform error code.
+    try {
+        const responseData = (await response.json());
+        const message = responseData.error?.message ?? response.statusText;
+        throw message;
+    }
+    catch (err) {
+        // If parsing failed, fall back to status text.
+        throw esm_index_esm_ERROR_FACTORY.create("fid-unregister-failed" /* ErrorCode.FID_UNREGISTER_FAILED */, {
+            errorInfo: (typeof err === 'string' && err) ||
+                response.statusText ||
+                err?.toString()
+        });
+    }
+}
+/**
+ * Parses a successful CreateRegistration body. The backend must return JSON with a non-empty
+ * string `name`: a resource name `projects/{projectId}/registrations/{fid}`
+ */
+async function parseCreateRegistrationSuccessFid(response) {
+    const text = await response.text();
+    if (!text.trim()) {
+        throw esm_index_esm_ERROR_FACTORY.create("fid-registration-failed" /* ErrorCode.FID_REGISTRATION_FAILED */, {
+            errorInfo: 'CreateRegistration succeeded but response body is empty'
+        });
+    }
+    let data;
+    try {
+        data = JSON.parse(text);
+    }
+    catch {
+        throw esm_index_esm_ERROR_FACTORY.create("fid-registration-failed" /* ErrorCode.FID_REGISTRATION_FAILED */, {
+            errorInfo: 'CreateRegistration succeeded but response body is not valid JSON'
+        });
+    }
+    const name = data.name;
+    if (typeof name !== 'string' || name.length === 0) {
+        throw esm_index_esm_ERROR_FACTORY.create("fid-registration-failed" /* ErrorCode.FID_REGISTRATION_FAILED */, {
+            errorInfo: 'CreateRegistration succeeded but response did not include a non-empty name'
+        });
+    }
+    return parseFidFromRegistrationResourceName(name);
+}
+const REGISTRATIONS_NAME_SEGMENT = '/registrations/';
+/** Extracts the Firebase Installation ID from CreateRegistration `name` (resource path). */
+function parseFidFromRegistrationResourceName(name) {
+    const segmentIndex = name.indexOf(REGISTRATIONS_NAME_SEGMENT);
+    if (segmentIndex !== -1) {
+        const fid = name.slice(segmentIndex + REGISTRATIONS_NAME_SEGMENT.length);
+        if (fid.length > 0) {
+            return fid;
+        }
+    }
+    throw esm_index_esm_ERROR_FACTORY.create("fid-registration-failed" /* ErrorCode.FID_REGISTRATION_FAILED */, {
+        errorInfo: 'CreateRegistration succeeded but response name is not a valid registration resource name'
+    });
+}
+async function requestUpdateToken(firebaseDependencies, tokenDetails) {
+    const headers = await index_esm_getHeaders(firebaseDependencies);
+    const body = getBody(tokenDetails.subscriptionOptions, firebaseDependencies.appConfig.appName, 
+    /* includeSdkVersion= */ false);
+    const updateOptions = {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(body)
+    };
+    let responseData;
+    try {
+        const response = await fetch(`${getEndpoint(firebaseDependencies.appConfig)}/${tokenDetails.token}`, updateOptions);
+        responseData = await response.json();
+    }
+    catch (err) {
+        throw esm_index_esm_ERROR_FACTORY.create("token-update-failed" /* ErrorCode.TOKEN_UPDATE_FAILED */, {
+            errorInfo: err?.toString()
+        });
+    }
+    if (responseData.error) {
+        const message = responseData.error.message;
+        throw esm_index_esm_ERROR_FACTORY.create("token-update-failed" /* ErrorCode.TOKEN_UPDATE_FAILED */, {
+            errorInfo: message
+        });
+    }
+    if (!responseData.token) {
+        throw esm_index_esm_ERROR_FACTORY.create("token-update-no-token" /* ErrorCode.TOKEN_UPDATE_NO_TOKEN */);
+    }
+    return responseData.token;
+}
+async function requestDeleteToken(firebaseDependencies, token) {
+    const headers = await index_esm_getHeaders(firebaseDependencies);
+    const unsubscribeOptions = {
+        method: 'DELETE',
+        headers
+    };
+    try {
+        const response = await fetch(`${getEndpoint(firebaseDependencies.appConfig)}/${token}`, unsubscribeOptions);
+        const responseData = await response.json();
+        if (responseData.error) {
+            const message = responseData.error.message;
+            throw esm_index_esm_ERROR_FACTORY.create("token-unsubscribe-failed" /* ErrorCode.TOKEN_UNSUBSCRIBE_FAILED */, {
+                errorInfo: message
+            });
+        }
+    }
+    catch (err) {
+        throw esm_index_esm_ERROR_FACTORY.create("token-unsubscribe-failed" /* ErrorCode.TOKEN_UNSUBSCRIBE_FAILED */, {
+            errorInfo: err?.toString()
+        });
+    }
+}
+/**
+ * Re-runs `operation` when it throws, with exponential backoff between attempts.
+ * Rethrows the last error if all attempts fail.
+ */
+async function fetchWithExponentialRetry(operation, maxAttempts, baseBackoffMs) {
+    let lastError;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            return await operation();
+        }
+        catch (err) {
+            lastError = err;
+            if (attempt < maxAttempts - 1) {
+                const delayMs = baseBackoffMs * Math.pow(2, attempt);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+        }
+    }
+    throw lastError;
+}
+function getEndpoint({ projectId }) {
+    return `${ENDPOINT}/projects/${projectId}/registrations`;
+}
+async function index_esm_getHeaders({ appConfig, installations }) {
+    const authToken = await installations.getToken();
+    return new Headers({
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'x-goog-api-key': appConfig.apiKey,
+        'x-goog-firebase-installations-auth': `FIS ${authToken}`
+    });
+}
+/**
+ * Hostname for the registering web client (e.g. `www.example.com`), or the app name
+ * (`appNameFallback`) when the scope cannot be resolved (e.g. some test environments).
+ */
+function getRegistrationOrigin(swScope, appNameFallback) {
+    try {
+        if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(swScope)) {
+            return new URL(swScope).host;
+        }
+    }
+    catch {
+        // Fall through to relative-scope handling.
+    }
+    try {
+        if (typeof self !== 'undefined' && self.location?.href) {
+            return new URL(swScope, self.location.origin).host;
+        }
+    }
+    catch {
+        // Fall through.
+    }
+    if (typeof self !== 'undefined' && self.location?.host) {
+        return self.location.host;
+    }
+    return appNameFallback;
+}
+function getBody({ p256dh, auth, endpoint, vapidKey, swScope }, appNameFallback, includeSdkVersion) {
+    const body = {
+        web: {
+            origin: getRegistrationOrigin(swScope, appNameFallback),
+            endpoint,
+            auth,
+            p256dh
+        }
+    };
+    if (includeSdkVersion) {
+        // eslint-disable-next-line camelcase
+        body.fcm_sdk_version = dist_esm_index_esm_version;
+    }
+    if (vapidKey !== DEFAULT_VAPID_KEY) {
+        body.web.applicationPubKey = vapidKey;
+    }
+    return body;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+// UpdateRegistration will be called once every week.
+const TOKEN_EXPIRATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+async function getTokenInternal(messaging) {
+    const pushSubscription = await getPushSubscription$1(messaging.swRegistration, messaging.vapidKey);
+    const subscriptionOptions = {
+        vapidKey: messaging.vapidKey,
+        swScope: messaging.swRegistration.scope,
+        endpoint: pushSubscription.endpoint,
+        auth: arrayToBase64(pushSubscription.getKey('auth')),
+        p256dh: arrayToBase64(pushSubscription.getKey('p256dh'))
+    };
+    const tokenDetails = await dbGet(messaging.firebaseDependencies);
+    if (!tokenDetails) {
+        // No token, get a new one.
+        return getNewToken(messaging.firebaseDependencies, subscriptionOptions);
+    }
+    else if (!isTokenValid(tokenDetails.subscriptionOptions, subscriptionOptions)) {
+        // Invalid token, get a new one.
+        try {
+            await requestDeleteToken(messaging.firebaseDependencies, tokenDetails.token);
+        }
+        catch (e) {
+            // Suppress errors because of #2364
+            console.warn(e);
+        }
+        return getNewToken(messaging.firebaseDependencies, subscriptionOptions);
+    }
+    else if (Date.now() >= tokenDetails.createTime + TOKEN_EXPIRATION_MS) {
+        // Weekly token refresh
+        return updateToken(messaging, {
+            token: tokenDetails.token,
+            createTime: Date.now(),
+            subscriptionOptions
+        });
+    }
+    else {
+        // Valid token, nothing to do.
+        return tokenDetails.token;
+    }
+}
+/**
+ * Legacy getToken() path: there is a token row in IndexedDB. Revoke it with FCM, drop the row, and
+ * clear any leftover FID registration metadata (apps may mix APIs).
+ */
+async function revokeLegacyFcmTokenAndClearCaches(messaging, tokenDetails) {
+    await requestDeleteToken(messaging.firebaseDependencies, tokenDetails.token);
+    await dbRemove(messaging.firebaseDependencies);
+    await removeFidRegistrationBestEffort(messaging.firebaseDependencies);
+}
+/**
+ * No legacy token row: the client may only have FID-based registration (register() flow). If so,
+ * delete that registration on the server, always scrub local FID metadata, then surface
+ * onUnregistered when we actually had an FID.
+ */
+async function revokeFidRegistrationIfStored(messaging) {
+    const stored = await dbGetFidRegistration(messaging.firebaseDependencies).catch(() => undefined);
+    const fid = stored?.fid;
+    if (fid) {
+        await requestDeleteRegistration(messaging.firebaseDependencies, fid);
+    }
+    await removeFidRegistrationBestEffort(messaging.firebaseDependencies);
+    if (fid) {
+        notifyOnUnregistered(messaging, fid);
+    }
+}
+/**
+ * Revokes the app's FCM registration: legacy token (getToken/deleteToken) and/or FID-based
+ * registration (register/unregister), clears local caches, notifies onUnregistered when a stored
+ * FID existed, then unsubscribes the push subscription when present.
+ */
+async function revokeRegistrationInternal(messaging) {
+    const tokenDetails = await dbGet(messaging.firebaseDependencies);
+    if (tokenDetails) {
+        await revokeLegacyFcmTokenAndClearCaches(messaging, tokenDetails);
+    }
+    else {
+        await revokeFidRegistrationIfStored(messaging);
+    }
+    // Unsubscribe from the push subscription.
+    const pushSubscription = await messaging.swRegistration.pushManager.getSubscription();
+    if (pushSubscription) {
+        return pushSubscription.unsubscribe();
+    }
+    // If there's no SW, consider it a success.
+    return true;
+}
+async function updateToken(messaging, tokenDetails) {
+    try {
+        const updatedToken = await requestUpdateToken(messaging.firebaseDependencies, tokenDetails);
+        const updatedTokenDetails = {
+            ...tokenDetails,
+            token: updatedToken,
+            createTime: Date.now()
+        };
+        await dbSet(messaging.firebaseDependencies, updatedTokenDetails);
+        return updatedToken;
+    }
+    catch (e) {
+        throw e;
+    }
+}
+async function getNewToken(firebaseDependencies, subscriptionOptions) {
+    const token = await requestGetToken(firebaseDependencies, subscriptionOptions);
+    const tokenDetails = {
+        token,
+        createTime: Date.now(),
+        subscriptionOptions
+    };
+    await dbSet(firebaseDependencies, tokenDetails);
+    return tokenDetails.token;
+}
+/**
+ * Gets a PushSubscription for the current user.
+ */
+async function getPushSubscription$1(swRegistration, vapidKey) {
+    const subscription = await swRegistration.pushManager.getSubscription();
+    if (subscription) {
+        return subscription;
+    }
+    return swRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        // Chrome <= 75 doesn't support base64-encoded VAPID key. For backward compatibility, VAPID key
+        // submitted to pushManager#subscribe must be of type Uint8Array.
+        applicationServerKey: base64ToArray(vapidKey)
+    });
+}
+/**
+ * Checks if the saved tokenDetails object matches the configuration provided.
+ */
+function isTokenValid(dbOptions, currentOptions) {
+    const isVapidKeyEqual = currentOptions.vapidKey === dbOptions.vapidKey;
+    const isEndpointEqual = currentOptions.endpoint === dbOptions.endpoint;
+    const isAuthEqual = currentOptions.auth === dbOptions.auth;
+    const isP256dhEqual = currentOptions.p256dh === dbOptions.p256dh;
+    return isVapidKeyEqual && isEndpointEqual && isAuthEqual && isP256dhEqual;
+}
+/** Clears FID registration metadata; apps may mix legacy getToken() with FID register/unregister. */
+async function removeFidRegistrationBestEffort(firebaseDependencies) {
+    try {
+        await dbRemoveFidRegistration(firebaseDependencies);
+    }
+    catch {
+        // Ignore.
+    }
+}
+function notifyOnRegistered(messaging, fid) {
+    const handler = messaging.onRegisteredHandler;
+    if (!handler) {
+        return;
+    }
+    if (typeof handler === 'function') {
+        handler(fid);
+    }
+    else {
+        handler.next(fid);
+    }
+}
+function notifyOnUnregistered(messaging, fid) {
+    const handler = messaging.onUnregisteredHandler;
+    if (!handler) {
+        return;
+    }
+    if (typeof handler === 'function') {
+        handler(fid);
+    }
+    else {
+        handler.next(fid);
+    }
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function registerDefaultSw(messaging) {
+    try {
+        messaging.swRegistration = await navigator.serviceWorker.register(DEFAULT_SW_PATH, {
+            scope: DEFAULT_SW_SCOPE
+        });
+        // The timing when browser updates sw when sw has an update is unreliable from experiment. It
+        // leads to version conflict when the SDK upgrades to a newer version in the main page, but sw
+        // is stuck with the old version. For example,
+        // https://github.com/firebase/firebase-js-sdk/issues/2590 The following line reliably updates
+        // sw if there was an update.
+        messaging.swRegistration.update().catch(() => {
+            /* it is non blocking and we don't care if it failed */
+        });
+        await waitForRegistrationActive(messaging.swRegistration);
+    }
+    catch (e) {
+        throw esm_index_esm_ERROR_FACTORY.create("failed-service-worker-registration" /* ErrorCode.FAILED_DEFAULT_REGISTRATION */, {
+            browserErrorMessage: e?.message
+        });
+    }
+}
+/**
+ * Waits for registration to become active. MDN documentation claims that
+ * a service worker registration should be ready to use after awaiting
+ * navigator.serviceWorker.register() but that doesn't seem to be the case in
+ * practice, causing the SDK to throw errors when calling
+ * swRegistration.pushManager.subscribe() too soon after register(). The only
+ * solution seems to be waiting for the service worker registration `state`
+ * to become "active".
+ */
+async function waitForRegistrationActive(registration) {
+    return new Promise((resolve, reject) => {
+        const rejectTimeout = setTimeout(() => reject(new Error(`Service worker not registered after ${DEFAULT_REGISTRATION_TIMEOUT} ms`)), DEFAULT_REGISTRATION_TIMEOUT);
+        const incomingSw = registration.installing || registration.waiting;
+        if (registration.active) {
+            clearTimeout(rejectTimeout);
+            resolve();
+        }
+        else if (incomingSw) {
+            incomingSw.onstatechange = ev => {
+                if (ev.target?.state === 'activated') {
+                    incomingSw.onstatechange = null;
+                    clearTimeout(rejectTimeout);
+                    resolve();
+                }
+            };
+        }
+        else {
+            clearTimeout(rejectTimeout);
+            reject(new Error('No incoming service worker found.'));
+        }
+    });
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function updateSwReg(messaging, swRegistration) {
+    if (!swRegistration && !messaging.swRegistration) {
+        await registerDefaultSw(messaging);
+    }
+    if (!swRegistration && !!messaging.swRegistration) {
+        return;
+    }
+    if (!(swRegistration instanceof ServiceWorkerRegistration)) {
+        throw esm_index_esm_ERROR_FACTORY.create("invalid-sw-registration" /* ErrorCode.INVALID_SW_REGISTRATION */);
+    }
+    messaging.swRegistration = swRegistration;
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function updateVapidKey(messaging, vapidKey) {
+    if (!!vapidKey) {
+        messaging.vapidKey = vapidKey;
+    }
+    else if (!messaging.vapidKey) {
+        messaging.vapidKey = DEFAULT_VAPID_KEY;
+    }
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/** Retries when CreateRegistration echoes an FID that does not match Installations.getId(). */
+const FID_REGISTRATION_FID_MATCH_MAX_ATTEMPTS = 3;
+/**
+ * For the new FID-based register path:
+ * - Create (or refresh) an FCM Web registration in the backend via CreateRegistration.
+ * - Use the FIS auth token produced by the installations instance (implicitly associated with FID).
+ * - CreateRegistration must echo the installation in `name` (e.g.
+ *   `projects/{projectId}/registrations/{fid}`); it must match `expectedFid` from
+ *   Installations.getId(). On mismatch we refresh the auth token and retry, then fail with
+ *   `fid-registration-failed`.
+ */
+async function registerFcmRegistrationWithFid(messaging, expectedFid) {
+    const pushSubscription = await getPushSubscription(messaging.swRegistration, messaging.vapidKey);
+    const subscriptionOptions = {
+        vapidKey: messaging.vapidKey,
+        swScope: messaging.swRegistration.scope,
+        endpoint: pushSubscription.endpoint,
+        auth: arrayToBase64(pushSubscription.getKey('auth')),
+        p256dh: arrayToBase64(pushSubscription.getKey('p256dh'))
+    };
+    const installations = messaging.firebaseDependencies.installations;
+    for (let attempt = 0; attempt < FID_REGISTRATION_FID_MATCH_MAX_ATTEMPTS; attempt++) {
+        const { responseFid } = await requestCreateRegistration(messaging.firebaseDependencies, subscriptionOptions);
+        if (responseFid === expectedFid) {
+            return;
+        }
+        // If CreateRegistration echoes an unexpected FID, the FIS auth token used for the request may
+        // be stale relative to the installation the backend associates with the call. Force-refresh
+        // the token before retrying so the next attempt uses credentials aligned with Installations.
+        if (attempt < FID_REGISTRATION_FID_MATCH_MAX_ATTEMPTS - 1) {
+            await installations.getToken(true);
+        }
+    }
+    throw esm_index_esm_ERROR_FACTORY.create("fid-registration-failed" /* ErrorCode.FID_REGISTRATION_FAILED */, {
+        errorInfo: 'CreateRegistration response FID does not match Firebase Installation ID'
+    });
+}
+async function getPushSubscription(swRegistration, vapidKey) {
+    const subscription = await swRegistration.pushManager.getSubscription();
+    if (subscription) {
+        return subscription;
+    }
+    // Chrome/Firefox require applicationServerKey to be of type Uint8Array.
+    return swRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        // `PushManager.subscribe` expects a `BufferSource`; `base64ToArray` produces a typed array.
+        // Cast to satisfy the lib typing differences across TS DOM versions.
+        applicationServerKey: base64ToArray(vapidKey)
+    });
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const FID_REGISTRATION_REFRESH_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+/**
+ * Registers the app instance with FCM using its Firebase Installation ID (FID). The FID is
+ * delivered via the `onRegistered` callback. Call this to establish an FID-based identity.
+ * Once `onRegistered` provides an FID, instruct your backend to remove any legacy token
+ * previously associated with this instance. The backend send API supports FID as a target.
+ *
+ * When called multiple times, `onRegistered` is invoked on each call with the current FID.
+ * Backend registration sync runs on first register, when the FID changes, or on weekly refresh.
+ *
+ * @param messaging - The MessagingService instance.
+ * @param options - Optional. Same options as getToken (vapidKey, serviceWorkerRegistration).
+ */
+async function register$1(messaging, options) {
+    if (!navigator) {
+        throw esm_index_esm_ERROR_FACTORY.create("only-available-in-window" /* ErrorCode.AVAILABLE_IN_WINDOW */);
+    }
+    if (Notification.permission === 'default') {
+        await Notification.requestPermission();
+    }
+    if (Notification.permission !== 'granted') {
+        throw esm_index_esm_ERROR_FACTORY.create("permission-blocked" /* ErrorCode.PERMISSION_BLOCKED */);
+    }
+    if (!messaging.onRegisteredHandler) {
+        throw esm_index_esm_ERROR_FACTORY.create("invalid-on-registered-handler" /* ErrorCode.INVALID_ON_REGISTERED_HANDLER */);
+    }
+    await updateVapidKey(messaging, options?.vapidKey);
+    await updateSwReg(messaging, options?.serviceWorkerRegistration);
+    // Keep the queue alive after a failed register() so future calls can retry.
+    const prev = messaging._registerNotifyChain.catch(() => { });
+    messaging._registerNotifyChain = prev.then(async () => {
+        const fid = await messaging.firebaseDependencies.installations.getId();
+        const stored = await dbGetFidRegistration(messaging.firebaseDependencies);
+        const now = Date.now();
+        const shouldRefresh = !stored ||
+            stored.fid !== fid ||
+            now >= stored.lastRegisterTime + FID_REGISTRATION_REFRESH_MS;
+        if (shouldRefresh) {
+            await registerFcmRegistrationWithFid(messaging, fid);
+            await dbSetFidRegistration(messaging.firebaseDependencies, {
+                fid,
+                lastRegisterTime: now,
+                vapidKey: messaging.vapidKey
+            });
+        }
+        const handler = messaging.onRegisteredHandler;
+        if (!handler) {
+            throw esm_index_esm_ERROR_FACTORY.create("invalid-on-registered-handler" /* ErrorCode.INVALID_ON_REGISTERED_HANDLER */);
+        }
+        notifyOnRegistered(messaging, fid);
+    });
+    return messaging._registerNotifyChain;
+}
+
+/**
+ * @license
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * When the Firebase Installation ID changes, re-run `register()` so FCM registration and
+ * onRegistered run for the new FID. No-op if no onRegistered handler is set or the app
+ * instance was never registered with FCM.
+ */
+function subscribeFidChangeRegistration(messaging, installations) {
+    return onIdChange(installations, () => {
+        void (async () => {
+            if (!messaging.onRegisteredHandler) {
+                return;
+            }
+            const stored = await dbGetFidRegistration(messaging.firebaseDependencies);
+            if (!stored) {
+                return;
+            }
+            await register$1(messaging).catch(() => {
+                // Best-effort: permission may be revoked or SW unavailable after FID rotation.
+            });
+        })();
+    });
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+function externalizePayload(internalPayload) {
+    const payload = {
+        from: internalPayload.from,
+        // eslint-disable-next-line camelcase
+        collapseKey: internalPayload.collapse_key,
+        // eslint-disable-next-line camelcase
+        messageId: internalPayload.fcmMessageId
+    };
+    propagateNotificationPayload(payload, internalPayload);
+    propagateDataPayload(payload, internalPayload);
+    propagateFcmOptions(payload, internalPayload);
+    return payload;
+}
+function propagateNotificationPayload(payload, messagePayloadInternal) {
+    if (!messagePayloadInternal.notification) {
+        return;
+    }
+    payload.notification = {};
+    const title = messagePayloadInternal.notification.title;
+    if (!!title) {
+        payload.notification.title = title;
+    }
+    const body = messagePayloadInternal.notification.body;
+    if (!!body) {
+        payload.notification.body = body;
+    }
+    const image = messagePayloadInternal.notification.image;
+    if (!!image) {
+        payload.notification.image = image;
+    }
+    const icon = messagePayloadInternal.notification.icon;
+    if (!!icon) {
+        payload.notification.icon = icon;
+    }
+}
+function propagateDataPayload(payload, messagePayloadInternal) {
+    if (!messagePayloadInternal.data) {
+        return;
+    }
+    payload.data = messagePayloadInternal.data;
+}
+function propagateFcmOptions(payload, messagePayloadInternal) {
+    // fcmOptions.link value is written into notification.click_action. see more in b/232072111
+    if (!messagePayloadInternal.fcmOptions &&
+        !messagePayloadInternal.notification?.click_action) {
+        return;
+    }
+    payload.fcmOptions = {};
+    const link = messagePayloadInternal.fcmOptions?.link ??
+        messagePayloadInternal.notification?.click_action;
+    if (!!link) {
+        payload.fcmOptions.link = link;
+    }
+    // eslint-disable-next-line camelcase
+    const analyticsLabel = messagePayloadInternal.fcmOptions?.analytics_label;
+    if (!!analyticsLabel) {
+        payload.fcmOptions.analyticsLabel = analyticsLabel;
+    }
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+function isConsoleMessage(data) {
+    // This message has a campaign ID, meaning it was sent using the Firebase Console.
+    return typeof data === 'object' && !!data && CONSOLE_CAMPAIGN_ID in data;
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+function index_esm_extractAppConfig(app) {
+    if (!app || !app.options) {
+        throw index_esm_getMissingValueError('App Configuration Object');
+    }
+    if (!app.name) {
+        throw index_esm_getMissingValueError('App Name');
+    }
+    // Required app config keys
+    const configKeys = [
+        'projectId',
+        'apiKey',
+        'appId',
+        'messagingSenderId'
+    ];
+    const { options } = app;
+    for (const keyName of configKeys) {
+        if (!options[keyName]) {
+            throw index_esm_getMissingValueError(keyName);
+        }
+    }
+    return {
+        appName: app.name,
+        projectId: options.projectId,
+        apiKey: options.apiKey,
+        appId: options.appId,
+        senderId: options.messagingSenderId
+    };
+}
+function index_esm_getMissingValueError(valueName) {
+    return esm_index_esm_ERROR_FACTORY.create("missing-app-config-values" /* ErrorCode.MISSING_APP_CONFIG_VALUES */, {
+        valueName
+    });
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+class MessagingService {
+    constructor(app, installations, analyticsProvider) {
+        // logging is only done with end user consent. Default to false.
+        this.deliveryMetricsExportedToBigQueryEnabled = false;
+        this.onBackgroundMessageHandler = null;
+        this.onMessageHandler = null;
+        /** Observer for the event that the app instance is registered with FCM via Firebase Installation ID (FID). */
+        this.onRegisteredHandler = null;
+        /** Observer for the event that the app instance is unregistered from FCM (FID no longer active). */
+        this.onUnregisteredHandler = null;
+        /**
+         * Serializes the FID get + compare + notify step so concurrent register() calls
+         * do not race each other.
+         */
+        this._registerNotifyChain = Promise.resolve();
+        /** Unsubscribe from Installations `onIdChange` when messaging is deleted. */
+        this._fidChangeUnsubscribe = null;
+        this.logEvents = [];
+        /**
+         * Single source of truth for the logging loop lifecycle.
+         *
+         * `scheduled` holds the active timer id; `flushing` indicates an async dispatch
+         * is in progress (prevents duplicate starts); `stopped` means idle.
+         */
+        this.logQueue = { state: 'stopped' };
+        const appConfig = index_esm_extractAppConfig(app);
+        this.firebaseDependencies = {
+            app,
+            appConfig,
+            installations,
+            analyticsProvider
+        };
+    }
+    _delete() {
+        if (this._fidChangeUnsubscribe) {
+            this._fidChangeUnsubscribe();
+            this._fidChangeUnsubscribe = null;
+        }
+        if (this.logQueue.state === 'scheduled') {
+            clearTimeout(this.logQueue.timerId);
+        }
+        this.logQueue = { state: 'stopped' };
+        return Promise.resolve();
+    }
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function getToken$1(messaging, options) {
+    if (!navigator) {
+        throw esm_index_esm_ERROR_FACTORY.create("only-available-in-window" /* ErrorCode.AVAILABLE_IN_WINDOW */);
+    }
+    if (Notification.permission === 'default') {
+        await Notification.requestPermission();
+    }
+    if (Notification.permission !== 'granted') {
+        throw esm_index_esm_ERROR_FACTORY.create("permission-blocked" /* ErrorCode.PERMISSION_BLOCKED */);
+    }
+    await updateVapidKey(messaging, options?.vapidKey);
+    await updateSwReg(messaging, options?.serviceWorkerRegistration);
+    return getTokenInternal(messaging);
+}
+
+/**
+ * @license
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function logToScion(messaging, messageType, data) {
+    const eventType = getEventType(messageType);
+    const analytics = await messaging.firebaseDependencies.analyticsProvider.get();
+    analytics.logEvent(eventType, {
+        /* eslint-disable camelcase */
+        message_id: data[CONSOLE_CAMPAIGN_ID],
+        message_name: data[CONSOLE_CAMPAIGN_NAME],
+        message_time: data[CONSOLE_CAMPAIGN_TIME],
+        message_device_time: Math.floor(Date.now() / 1000)
+        /* eslint-enable camelcase */
+    });
+}
+function getEventType(messageType) {
+    switch (messageType) {
+        case MessageType.NOTIFICATION_CLICKED:
+            return 'notification_open';
+        case MessageType.PUSH_RECEIVED:
+            return 'notification_foreground';
+        default:
+            throw new Error();
+    }
+}
+
+/**
+ * @license
+ * Copyright 2017 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function messageEventListener(messaging, event) {
+    const internalPayload = event.data;
+    if (!internalPayload.isFirebaseMessaging) {
+        return;
+    }
+    if (messaging.onMessageHandler &&
+        internalPayload.messageType === MessageType.PUSH_RECEIVED) {
+        if (typeof messaging.onMessageHandler === 'function') {
+            messaging.onMessageHandler(externalizePayload(internalPayload));
+        }
+        else {
+            messaging.onMessageHandler.next(externalizePayload(internalPayload));
+        }
+    }
+    if (messaging.onRegisteredHandler &&
+        internalPayload.messageType === MessageType.FID_REGISTERED) {
+        const fid = internalPayload.fid;
+        if (typeof messaging.onRegisteredHandler === 'function') {
+            messaging.onRegisteredHandler(fid);
+        }
+        else {
+            messaging.onRegisteredHandler.next(fid);
+        }
+    }
+    // Log to Scion if applicable
+    const dataPayload = internalPayload.data;
+    if (isConsoleMessage(dataPayload) &&
+        dataPayload[CONSOLE_CAMPAIGN_ANALYTICS_ENABLED] === '1') {
+        await logToScion(messaging, internalPayload.messageType, dataPayload);
+    }
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const WindowMessagingFactory = (container) => {
+    const messaging = new MessagingService(container.getProvider('app').getImmediate(), container.getProvider('installations-internal').getImmediate(), container.getProvider('analytics-internal'));
+    navigator.serviceWorker.addEventListener('message', e => messageEventListener(messaging, e));
+    messaging._fidChangeUnsubscribe = subscribeFidChangeRegistration(messaging, container.getProvider('installations').getImmediate());
+    return messaging;
+};
+const WindowMessagingInternalFactory = (container) => {
+    const messaging = container
+        .getProvider('messaging')
+        .getImmediate();
+    const messagingInternal = {
+        getToken: (options) => getToken$1(messaging, options),
+        register: (options) => register$1(messaging, options)
+    };
+    return messagingInternal;
+};
+function registerMessagingInWindow() {
+    _registerComponent(new Component('messaging', WindowMessagingFactory, "PUBLIC" /* ComponentType.PUBLIC */));
+    _registerComponent(new Component('messaging-internal', WindowMessagingInternalFactory, "PRIVATE" /* ComponentType.PRIVATE */));
+    registerVersion(messaging_dist_esm_index_esm_name, dist_esm_index_esm_version);
+    // BUILD_TARGET will be replaced by values like esm, cjs, etc during the compilation
+    registerVersion(messaging_dist_esm_index_esm_name, dist_esm_index_esm_version, 'esm2020');
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Checks if all required APIs exist in the browser.
+ * @returns a Promise that resolves to a boolean.
+ *
+ * @public
+ */
+async function isWindowSupported() {
+    try {
+        // This throws if open() is unsupported, so adding it to the conditional
+        // statement below can cause an uncaught error.
+        await validateIndexedDBOpenable();
+    }
+    catch (e) {
+        return false;
+    }
+    // firebase-js-sdk/issues/2393 reveals that idb#open in Safari iframe and Firefox private browsing
+    // might be prohibited to run. In these contexts, an error would be thrown during the messaging
+    // instantiating phase, informing the developers to import/call isSupported for special handling.
+    return (typeof window !== 'undefined' &&
+        isIndexedDBAvailable() &&
+        areCookiesEnabled() &&
+        'serviceWorker' in navigator &&
+        'PushManager' in window &&
+        'Notification' in window &&
+        'fetch' in window &&
+        ServiceWorkerRegistration.prototype.hasOwnProperty('showNotification') &&
+        PushSubscription.prototype.hasOwnProperty('getKey'));
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+async function deleteToken$1(messaging) {
+    if (!navigator) {
+        throw esm_index_esm_ERROR_FACTORY.create("only-available-in-window" /* ErrorCode.AVAILABLE_IN_WINDOW */);
+    }
+    if (!messaging.swRegistration) {
+        await registerDefaultSw(messaging);
+    }
+    return revokeRegistrationInternal(messaging);
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+function onMessage$1(messaging, nextOrObserver) {
+    if (!navigator) {
+        throw esm_index_esm_ERROR_FACTORY.create("only-available-in-window" /* ErrorCode.AVAILABLE_IN_WINDOW */);
+    }
+    messaging.onMessageHandler = nextOrObserver;
+    return () => {
+        messaging.onMessageHandler = null;
+    };
+}
+
+/**
+ * @license
+ * Copyright 2020 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Subscribes to an event that the app instance is registered with FCM via Firebase Installation ID (FID).
+ * Use the FID passed to the callback to upload it to your application server.
+ *
+ * @param messaging - The {@link MessagingService} instance.
+ * @param nextOrObserver - A function or observer object called when an FID is registered.
+ * @returns Unsubscribe function to stop listening.
+ */
+function onRegistered$1(messaging, nextOrObserver) {
+    messaging.onRegisteredHandler = nextOrObserver;
+    return () => {
+        if (messaging.onRegisteredHandler === nextOrObserver) {
+            messaging.onRegisteredHandler = null;
+        }
+    };
+}
+
+/**
+ * @license
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Subscribes to an event that the app instance is unregistered from FCM so the FID is no longer active.
+ * Use this to notify your backend to remove this FID to prevent 404 errors on send.
+ *
+ * @param messaging - The {@link MessagingService} instance.
+ * @param nextOrObserver - A function or observer object called with the unregistered FID.
+ * @returns Unsubscribe function to stop listening.
+ */
+function onUnregistered$1(messaging, nextOrObserver) {
+    messaging.onUnregisteredHandler = nextOrObserver;
+    return () => {
+        if (messaging.onUnregisteredHandler === nextOrObserver) {
+            messaging.onUnregisteredHandler = null;
+        }
+    };
+}
+
+/**
+ * @license
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Unregisters the app instance from FCM by deleting its FID-based registration.
+ *
+ * On success, triggers the `onUnregistered` callback (if set) with the unregistered FID.
+ *
+ * @param messaging - The MessagingService instance.
+ */
+async function unregister$1(messaging) {
+    if (!navigator) {
+        throw esm_index_esm_ERROR_FACTORY.create("only-available-in-window" /* ErrorCode.AVAILABLE_IN_WINDOW */);
+    }
+    // Prefer the last successfully registered FID from local metadata when available.
+    const stored = await dbGetFidRegistration(messaging.firebaseDependencies).catch(() => undefined);
+    const fid = stored?.fid ?? (await messaging.firebaseDependencies.installations.getId());
+    await requestDeleteRegistration(messaging.firebaseDependencies, fid);
+    // Best-effort local cleanup; still resolve even if schema is unavailable.
+    try {
+        await dbRemoveFidRegistration(messaging.firebaseDependencies);
+    }
+    catch {
+        // Ignore.
+    }
+    // Best-effort cleanup of legacy token details created via getToken().
+    try {
+        await dbRemove(messaging.firebaseDependencies);
+    }
+    catch {
+        // Ignore.
+    }
+    const handler = messaging.onUnregisteredHandler;
+    if (!handler) {
+        return;
+    }
+    if (typeof handler === 'function') {
+        handler(fid);
+    }
+    else {
+        handler.next(fid);
+    }
+}
+
+/**
+ * @license
+ * Copyright 2017 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * Retrieves a Firebase Cloud Messaging instance.
+ *
+ * @returns The Firebase Cloud Messaging instance associated with the provided firebase app.
+ *
+ * @public
+ */
+function getMessagingInWindow(app = getApp()) {
+    // Conscious decision to make this async check non-blocking during the messaging instance
+    // initialization phase for performance consideration. An error would be thrown latter for
+    // developer's information. Developers can then choose to import and call `isSupported` for
+    // special handling.
+    isWindowSupported().then(isSupported => {
+        // If `isWindowSupported()` resolved, but returned false.
+        if (!isSupported) {
+            throw esm_index_esm_ERROR_FACTORY.create("unsupported-browser" /* ErrorCode.UNSUPPORTED_BROWSER */);
+        }
+    }, _ => {
+        // If `isWindowSupported()` rejected.
+        throw esm_index_esm_ERROR_FACTORY.create("indexed-db-unsupported" /* ErrorCode.INDEXED_DB_UNSUPPORTED */);
+    });
+    return _getProvider(getModularInstance(app), 'messaging').getImmediate();
+}
+/**
+ * Subscribes the {@link Messaging} instance to push notifications. Returns a Firebase Cloud
+ * Messaging registration token that can be used to send push messages to that {@link Messaging}
+ * instance.
+ *
+ * If notification permission isn't already granted, this method asks the user for permission. The
+ * returned promise rejects if the user does not allow the app to show notifications.
+ *
+ * @param messaging - The {@link Messaging} instance.
+ * @param options - Provides an optional vapid key and an optional service worker registration.
+ *
+ * @returns The promise resolves with an FCM registration token.
+ *
+ * @deprecated Use {@link register} together with {@link onRegistered} for Firebase
+ * Installation ID-based messaging instead of retrieving an FCM registration token with this API.
+ *
+ * @public
+ */
+async function index_esm_getToken(messaging, options) {
+    messaging = esm_index_esm_getModularInstance(messaging);
+    return getToken$1(messaging, options);
+}
+/**
+ * Deletes the registration token associated with this {@link Messaging} instance and unsubscribes
+ * the {@link Messaging} instance from the push subscription.
+ *
+ * If there is no legacy registration token but the client has FID-based registration metadata
+ * (from {@link register}), this deletes that registration on the server, clears local metadata, and
+ * invokes {@link onUnregistered} with the removed FID when successful.
+ *
+ * @param messaging - The {@link Messaging} instance.
+ *
+ * @returns The promise resolves when the token has been successfully deleted.
+ *
+ * @deprecated Use {@link onUnregistered} to observe when the client is no longer
+ * registered and update your backend accordingly, instead of explicitly deleting the
+ * registration token with this API.
+ *
+ * @public
+ */
+function deleteToken(messaging) {
+    messaging = esm_index_esm_getModularInstance(messaging);
+    return deleteToken$1(messaging);
+}
+/**
+ * When a push message is received and the user is currently on a page for your origin, the
+ * message is passed to the page and an `onMessage()` event is dispatched with the payload of
+ * the push message.
+ *
+ *
+ * @param messaging - The {@link Messaging} instance.
+ * @param nextOrObserver - This function, or observer object with `next` defined,
+ *     is called when a message is received and the user is currently viewing your page.
+ * @returns To stop listening for messages execute this returned function.
+ *
+ * @public
+ */
+function onMessage(messaging, nextOrObserver) {
+    messaging = getModularInstance(messaging);
+    return onMessage$1(messaging, nextOrObserver);
+}
+/**
+ * Registers the app instance with FCM using its Firebase Installation ID (FID). The FID is
+ * delivered via the {@link onRegistered} callback, not as a return value. Call this to establish
+ * an FID-based identity; once {@link onRegistered} provides an FID, instruct your backend to
+ * remove any legacy token previously associated with this instance. The backend send API
+ * supports FID as a target.
+ *
+ * @param messaging - The {@link Messaging} instance.
+ * @param options - Optional. VAPID key and/or service worker registration (same as getToken).
+ * @returns Promise that resolves when registration has been initiated; FID is delivered via onRegistered.
+ *
+ * @public
+ */
+async function register(messaging, options) {
+    messaging = getModularInstance(messaging);
+    return register$1(messaging, options);
+}
+/**
+ * Unregisters the app instance from FCM by deleting its FID-based registration.
+ * On success, triggers {@link onUnregistered} (if registered) with the unregistered FID.
+ *
+ * @param messaging - The {@link Messaging} instance.
+ *
+ * @public
+ */
+async function unregister(messaging) {
+    messaging = esm_index_esm_getModularInstance(messaging);
+    return unregister$1(messaging);
+}
+/**
+ * Subscribes to an event that the app instance is registered with FCM via Firebase Installation ID (FID).
+ * Use the FID passed to the callback to upload it to your application server. When you receive an FID
+ * after calling {@link register}, instruct your backend to remove any legacy token for this instance.
+ *
+ * @param messaging - The {@link Messaging} instance.
+ * @param nextOrObserver - A function or observer object called when an FID is registered.
+ * @returns Unsubscribe function to stop listening.
+ *
+ * @public
+ */
+function onRegistered(messaging, nextOrObserver) {
+    messaging = getModularInstance(messaging);
+    return onRegistered$1(messaging, nextOrObserver);
+}
+/**
+ * Subscribes to an event that the app instance is unregistered from FCM (FID no longer active).
+ * Use this to notify your backend to remove this FID to prevent 404 errors on send.
+ *
+ * @param messaging - The {@link Messaging} instance.
+ * @param nextOrObserver - A function or observer object called with the unregistered FID.
+ * @returns Unsubscribe function to stop listening.
+ *
+ * @public
+ */
+function onUnregistered(messaging, nextOrObserver) {
+    messaging = esm_index_esm_getModularInstance(messaging);
+    return onUnregistered$1(messaging, nextOrObserver);
+}
+
+/**
+ * The Firebase Cloud Messaging Web SDK.
+ * This SDK does not work in a Node.js environment.
+ *
+ * @packageDocumentation
+ */
+/**
+ * @license
+ * Copyright 2017 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+registerMessagingInWindow();
+
+
+//# sourceMappingURL=index.esm.js.map
+
+;// ./node_modules/firebase/messaging/dist/esm/index.esm.js
 
 //# sourceMappingURL=index.esm.js.map
 
 ;// ./src/index.js
 /* eslint-disable import/prefer-default-export */
 /* eslint-disable import/no-extraneous-dependencies */
+
 
 
 
@@ -29421,6 +33031,7 @@ function loadFirebaseConfig() {
   try {
     return JSON.parse(el.textContent);
   } catch (err) {
+    // eslint-disable-next-line no-console -- note error loading FB
     console.error('loadFirebaseConfig error:', err);
     return {};
   }
@@ -29480,5 +33091,11 @@ const _off = off;
 const _serverTimestamp = serverTimestamp;
 const _onChildAdded = onChildAdded;
 const _onChildRemoved = onChildRemoved;
+const _getMessaging = getMessagingInWindow;
+const _onRegistered = onRegistered;
+const _onMessage = onMessage;
+const _register = register;
+const _messagingSwUrl = typeof firebaseConfig?.swConfig?.messagingSwUrl === 'string' ? firebaseConfig.swConfig.messagingSwUrl : '';
+const _vapidKey = typeof firebaseConfig?.swConfig?.vapidKey === 'string' ? firebaseConfig.swConfig.vapidKey : '';
 
-export { _EmailAuthProvider as EmailAuthProvider, _GithubAuthProvider as GithubAuthProvider, _GoogleAuthProvider as GoogleAuthProvider, _OAuthProvider as OAuthProvider, _app as app, _auth as auth, _child as child, _endAt as endAt, _equalTo as equalTo, _fetchSignInMethodsForEmail as fetchSignInMethodsForEmail, _get as get, _db as getDatabase, src_getRedirectResult as getRedirectResult, _isSignInWithEmailLink as isSignInWithEmailLink, _limitToFirst as limitToFirst, _limitToLast as limitToLast, _linkWithCredential as linkWithCredential, _off as off, _onAuthStateChanged as onAuthStateChanged, _onChildAdded as onChildAdded, _onChildRemoved as onChildRemoved, _onValue as onValue, _orderByChild as orderByChild, _orderByKey as orderByKey, _orderByValue as orderByValue, _push as push, _query as query, _ref as ref, _remove as remove, _sendSignInLinkToEmail as sendSignInLinkToEmail, _serverTimestamp as serverTimestamp, _set as set, _signInAnonymously as signInAnonymously, _signInWithEmailAndPassword as signInWithEmailAndPassword, _signInWithEmailLink as signInWithEmailLink, src_signInWithRedirect as signInWithRedirect, _signOut as signOut, _startAt as startAt, _update as update };
+export { _EmailAuthProvider as EmailAuthProvider, _GithubAuthProvider as GithubAuthProvider, _GoogleAuthProvider as GoogleAuthProvider, _OAuthProvider as OAuthProvider, _app as app, _auth as auth, _child as child, _endAt as endAt, _equalTo as equalTo, _fetchSignInMethodsForEmail as fetchSignInMethodsForEmail, _get as get, _db as getDatabase, _getMessaging as getMessaging, src_getRedirectResult as getRedirectResult, _isSignInWithEmailLink as isSignInWithEmailLink, _limitToFirst as limitToFirst, _limitToLast as limitToLast, _linkWithCredential as linkWithCredential, _messagingSwUrl as messagingSwUrl, _off as off, _onAuthStateChanged as onAuthStateChanged, _onChildAdded as onChildAdded, _onChildRemoved as onChildRemoved, _onMessage as onMessage, _onRegistered as onRegistered, _onValue as onValue, _orderByChild as orderByChild, _orderByKey as orderByKey, _orderByValue as orderByValue, _push as push, _query as query, _ref as ref, _register as register, _remove as remove, _sendSignInLinkToEmail as sendSignInLinkToEmail, _serverTimestamp as serverTimestamp, _set as set, _signInAnonymously as signInAnonymously, _signInWithEmailAndPassword as signInWithEmailAndPassword, _signInWithEmailLink as signInWithEmailLink, src_signInWithRedirect as signInWithRedirect, _signOut as signOut, _startAt as startAt, _update as update, _vapidKey as vapidKey };
